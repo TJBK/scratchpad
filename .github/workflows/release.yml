@@ -1,6 +1,7 @@
 name: Release
 
-# main -> versioned release (vX.Y.Z, marked latest)
+# main -> versioned release (vX.Y.Z, marked latest). The patch number bumps automatically
+#         past the latest release; raise module.json's version by hand for a minor or major bump.
 # dev  -> rolling "dev" prerelease, replaced on every push
 on:
   push:
@@ -9,6 +10,11 @@ on:
 
 permissions:
   contents: write
+
+# Back-to-back main pushes must not both pick the same next version.
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -25,10 +31,19 @@ jobs:
 
       - name: Set release info
         id: info
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(jq -r .version module.json)
           BASE="https://github.com/${GITHUB_REPOSITORY}/releases"
           if [ "$GITHUB_REF_NAME" = "main" ]; then
+            LATEST=$(gh release list --exclude-pre-releases --limit 100 --json tagName --jq '.[].tagName' \
+              | sed -n 's/^v\([0-9]*\.[0-9]*\.[0-9]*\)$/\1/p' | sort -V | tail -n 1)
+            # module.json not ahead of the latest release: next patch after that release.
+            if [ -n "$LATEST" ] && [ "$(printf '%s\n' "$VERSION" "$LATEST" | sort -V | tail -n 1)" = "$LATEST" ]; then
+              IFS=. read -r MAJOR MINOR PATCH <<< "$LATEST"
+              VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+            fi
             TAG="v$VERSION"
             MANIFEST="$BASE/latest/download/module.json"
           else
@@ -41,19 +56,7 @@ jobs:
           echo "manifest=$MANIFEST" >> "$GITHUB_OUTPUT"
           echo "download=$BASE/download/$TAG/module.zip" >> "$GITHUB_OUTPUT"
 
-      - name: Skip if main version already released
-        id: exists
-        if: github.ref_name == 'main'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if gh release view "${{ steps.info.outputs.tag }}" >/dev/null 2>&1; then
-            echo "Release ${{ steps.info.outputs.tag }} exists; bump version in module.json to publish."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Build package
-        if: steps.exists.outputs.skip != 'true'
         run: |
           jq --arg v "${{ steps.info.outputs.version }}" \
              --arg m "${{ steps.info.outputs.manifest }}" \
@@ -64,7 +67,6 @@ jobs:
           zip -r module.zip module.json src styles lang
 
       - name: Publish
-        if: steps.exists.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.info.outputs.tag }}
