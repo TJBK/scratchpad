@@ -38,4 +38,4 @@ See [CONTRIBUTING.md](.github/CONTRIBUTING.md). In short: open pull requests int
 
 ## AI disclosure
 
-AI tools are used to help write the code for this module.
+AI coding tools help write this module's code, as allowed by section 4.4 of the [Foundry VTT AI Policy](https://foundryvtt.com/article/ai-policy). I understand, can explain, and maintain every part of the codebase. Scratchpad has no AI features and generates nothing with AI while you use it. Because AI was used in development, it doesn't qualify for Foundry's "Zero AI" tag.

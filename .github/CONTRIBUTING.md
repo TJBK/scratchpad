@@ -29,4 +29,10 @@ For a bigger jump, set `version` in `module.json` higher than the latest release
 
 ## Using AI
 
-I use AI tools to help write code for this project. You're welcome to as well, as long as you've read the code, understand it, and tested it yourself before opening the pull request.
+Scratchpad follows the [Foundry VTT AI Policy](https://foundryvtt.com/article/ai-policy). I use AI coding tools on this project, and you can too, within the same rules:
+
+- **Code:** AI help is fine, but you must be able to understand, explain, change, and maintain every line you submit. Pasting in large blocks of generated code you don't understand ("vibe coding") isn't allowed.
+- **Text people see:** UI strings in `lang/`, notifications, and the package description must be written by a person. AI can proofread or format them, not write them.
+- **Art and audio:** no AI-generated images, icons, textures, or sound.
+
+I may ask you to walk me through a change before merging it.
