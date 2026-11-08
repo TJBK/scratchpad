@@ -91,6 +91,7 @@ export function styleFlags(style) {
   if (style.shadow) f.shadow = true;
   if (style.pressure) f.pressure = style.pressure;
   if (style.private) f.private = true;
+  if (style.arrow) f.arrow = true;
   return f;
 }
 

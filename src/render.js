@@ -4,7 +4,7 @@ import { MODULE, isPolygon, isPrivateHidden, docLine, drawLine, softness } from 
 import { cardData, scheduleRender } from "./board.js";
 import { layerHides } from "./layers.js";
 
-const SHAPE_FLAGS = ["dash", "brush", "hardness", "texture", "pressure", "shadow"];
+const SHAPE_FLAGS = ["dash", "brush", "hardness", "texture", "pressure", "shadow", "arrow"];
 
 export function registerDrawingClass() {
   const Base = CONFIG.Drawing.objectClass;

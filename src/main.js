@@ -173,6 +173,8 @@ async function createWhiteboardScene() {
   });
 
   if (!scene) return;
+  // v14 ignores the scene backgroundColor; the colour lives on the scene's Level.
+  await scene.firstLevel?.update({ "background.color": "#ffffff" });
   await scene.view();
   ui.controls.activate?.({ control: "drawings", tool: TOOL.PEN });
 }

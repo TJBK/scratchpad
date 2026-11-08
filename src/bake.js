@@ -1,5 +1,5 @@
 // Bakes the scene background plus visible Drawings (and optionally Tiles) into a single background image.
-import { MODULE, t, pushUndo } from "./core.js";
+import { MODULE, t, pushUndo, pixiColor } from "./core.js";
 import { visibleToPlayers } from "./layers.js";
 
 const MAX_BAKE_SIZE = 8192;
@@ -41,9 +41,14 @@ export async function bakeScene({ tiles = false, remove = true } = {}) {
   const blob = await renderSceneImage(drawings, bakedTiles);
   const path = await upload(blob, `${scene.id}-${Date.now()}.webp`);
 
+  // v14 keeps the background on the viewed Level; writing scene.background there is silently dropped.
+  const bgDoc = canvas.level ?? scene;
   // Keep the very first original so the pre-bake background can always be restored.
-  const original = scene.getFlag(MODULE, "originalBackground") ?? scene.background.src ?? "";
-  await scene.update({ "background.src": path, [`flags.${MODULE}.originalBackground`]: original });
+  const original = scene.getFlag(MODULE, "originalBackground") ?? bgDoc.background.src ?? "";
+  await scene.update({ [`flags.${MODULE}.originalBackground`]: original });
+  await bgDoc.update({ "background.src": path });
+  // Never delete drawings unless the baked image really became the background.
+  if (bgDoc.background.src !== path) throw new Error("background update was not applied");
 
   if (!remove) return;
   if (drawings.length) {
@@ -69,7 +74,7 @@ async function renderSceneImage(drawings, tiles) {
   const keep = new Set([canvas.primary.background, ...drawings.map(d => d.object.shape), ...tiles.map(tile => tile.object.mesh)]);
   const stage = new PIXI.Container();
   const backdrop = stage.addChild(new PIXI.Graphics());
-  backdrop.beginFill(Number(canvas.scene.backgroundColor) || 0x999999).drawRect(rect.x, rect.y, rect.width, rect.height).endFill();
+  backdrop.beginFill(pixiColor(canvas.level?.background.color ?? canvas.scene.backgroundColor ?? "#999999")).drawRect(rect.x, rect.y, rect.width, rect.height).endFill();
   for (const child of canvas.primary.children) {
     if (keep.has(child) && child.visible) stage.addChild(copyOf(child));
   }
