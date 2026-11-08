@@ -1,0 +1,78 @@
+name: Release
+
+# main -> versioned release (vX.Y.Z, marked latest)
+# dev  -> rolling "dev" prerelease, replaced on every push
+on:
+  push:
+    branches: [main, dev]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Test
+        run: node --test tests/*.mjs
+
+      - name: Set release info
+        id: info
+        run: |
+          VERSION=$(jq -r .version module.json)
+          BASE="https://github.com/${GITHUB_REPOSITORY}/releases"
+          if [ "$GITHUB_REF_NAME" = "main" ]; then
+            TAG="v$VERSION"
+            MANIFEST="$BASE/latest/download/module.json"
+          else
+            TAG="dev"
+            VERSION="$VERSION-dev.$GITHUB_RUN_NUMBER"
+            MANIFEST="$BASE/download/dev/module.json"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "manifest=$MANIFEST" >> "$GITHUB_OUTPUT"
+          echo "download=$BASE/download/$TAG/module.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if main version already released
+        id: exists
+        if: github.ref_name == 'main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.info.outputs.tag }}" >/dev/null 2>&1; then
+            echo "Release ${{ steps.info.outputs.tag }} exists; bump version in module.json to publish."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build package
+        if: steps.exists.outputs.skip != 'true'
+        run: |
+          jq --arg v "${{ steps.info.outputs.version }}" \
+             --arg m "${{ steps.info.outputs.manifest }}" \
+             --arg d "${{ steps.info.outputs.download }}" \
+             --arg u "https://github.com/${GITHUB_REPOSITORY}" \
+             '.version=$v | .manifest=$m | .download=$d | .url=$u' module.json > module.tmp
+          mv module.tmp module.json
+          zip -r module.zip module.json src styles lang
+
+      - name: Publish
+        if: steps.exists.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.info.outputs.tag }}
+        run: |
+          if [ "$TAG" = "dev" ]; then
+            gh release delete dev --cleanup-tag --yes 2>/dev/null || true
+            gh release create dev module.json module.zip --target "$GITHUB_SHA" \
+              --prerelease --latest=false --title "Dev build ${{ steps.info.outputs.version }}" --notes "Latest dev branch build."
+          else
+            gh release create "$TAG" module.json module.zip --target "$GITHUB_SHA" \
+              --latest --title "$TAG" --generate-notes
+          fi

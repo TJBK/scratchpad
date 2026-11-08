@@ -1,0 +1,14 @@
+{
+  "id": "scratchpad",
+  "title": "Scratchpad",
+  "description": "Freehand pen, a partial eraser that cuts lines instead of deleting them, snapping shapes and arrows, dashed and dotted lines, multi-line text, lasso select, an investigation board with formatted cards and string, live shared strokes, and one-click whiteboard scenes.",
+  "version": "0.3.0",
+  "compatibility": {
+    "minimum": "13",
+    "verified": "14"
+  },
+  "esmodules": ["src/main.js"],
+  "styles": ["styles/scratchpad.css"],
+  "languages": [{ "lang": "en", "name": "English", "path": "lang/en.json" }],
+  "socket": true
+}

@@ -1,0 +1,314 @@
+#scratchpad-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  touch-action: none;
+}
+#scratchpad-overlay.active {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+#scratchpad-overlay.active.eraser {
+  cursor: cell;
+}
+#scratchpad-overlay.active.text {
+  cursor: text;
+}
+
+#scratchpad-text {
+  position: fixed;
+  z-index: 100;
+  min-width: 8em;
+  min-height: 1.6em;
+  padding: 2px 4px;
+  border: 1px dashed #3399ff;
+  background: rgba(255, 255, 255, 0.75);
+  font-family: var(--font-primary, sans-serif);
+  line-height: 1.4;
+  resize: both;
+  overflow: hidden;
+}
+#scratchpad-palette select {
+  width: auto;
+  height: 24px;
+}
+#scratchpad-palette [hidden] {
+  display: none !important;
+}
+
+/* Investigation board: positioned in canvas units, the layer's transform follows pan/zoom. */
+#scratchpad-board {
+  position: fixed;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+.scratchpad-card {
+  position: absolute;
+  box-sizing: border-box;
+  padding: 26px 14px 10px;
+  overflow: hidden;
+  color: #222;
+  font-family: var(--font-primary, sans-serif);
+  font-size: 18px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  transform-origin: center;
+}
+.scratchpad-card.is-hidden {
+  opacity: 0.5;
+}
+.scratchpad-card :is(h1, h2, h3) {
+  margin: 0 0 6px;
+  border: none;
+  color: inherit;
+  font-size: 1.3em;
+}
+.scratchpad-card :is(p, ul, ol) {
+  margin: 0 0 6px;
+}
+.scratchpad-strings {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+}
+.scratchpad-strings path {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+.scratchpad-strings .pins circle {
+  fill: #c92a2a;
+  stroke: #5c1010;
+  stroke-width: 2;
+}
+
+.scratchpad-card-editor .toolbar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+  align-items: center;
+}
+.scratchpad-card-editor .toolbar button {
+  width: 30px;
+  flex: none;
+}
+.scratchpad-card-editor .body {
+  min-height: 160px;
+  max-height: 50vh;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--color-border, #888);
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+}
+
+#scratchpad-palette {
+  display: none;
+  position: fixed;
+  top: 12px;
+  left: 0;
+  right: 0;
+  width: fit-content;
+  margin: 0 auto;
+  z-index: 100;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: rgba(20, 20, 24, 0.92);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  color: #eee;
+  font-size: 13px;
+}
+#scratchpad-palette.active {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: min(720px, calc(100vw - 32px));
+}
+#scratchpad-palette input[type="range"] {
+  width: 80px;
+}
+#scratchpad-palette .toggle {
+  width: 26px;
+  height: 24px;
+  min-height: 0;
+  padding: 0;
+  line-height: 1;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: transparent;
+  color: #bbb;
+  cursor: pointer;
+}
+#scratchpad-palette .toggle[aria-pressed="true"] {
+  background: #3a6ea5;
+  border-color: #6fa3d8;
+  color: #fff;
+}
+#scratchpad-palette .toggle:focus-visible {
+  outline: 2px solid #fff;
+}
+#scratchpad-palette .swatches {
+  display: flex;
+  gap: 4px;
+}
+#scratchpad-palette .swatches button {
+  width: 22px;
+  height: 22px;
+  min-height: 0;
+  padding: 0;
+  border: 2px solid #666;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.1s ease, border-color 0.1s ease;
+}
+#scratchpad-palette .swatches button:hover {
+  border-color: #aaa;
+}
+#scratchpad-palette .swatches button.active {
+  border-color: #fff;
+  transform: scale(1.12);
+}
+#scratchpad-palette .swatches button:focus-visible {
+  outline: 2px solid #fff;
+}
+@media (prefers-reduced-motion: reduce) {
+  #scratchpad-palette .swatches button,
+  .scratchpad-card-editor .body {
+    transition: none;
+  }
+}
+#scratchpad-palette input[type="color"] {
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+}
+#scratchpad-palette label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+#scratchpad-palette output {
+  min-width: 2ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #bbb;
+  font-size: 12px;
+}
+
+/* Current-layer badge (right, beside the sidebar) and the layers panel docked under it */
+#scratchpad-layer-badge {
+  position: fixed;
+  top: 12px;
+  right: 316px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  max-width: 260px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #6fa3d8;
+  border-radius: 6px;
+  background: rgba(20, 20, 24, 0.92);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  color: #eee;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+#scratchpad-layer-badge[hidden] {
+  display: none;
+}
+#scratchpad-layer-badge span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#scratchpad-layer-badge:focus-visible {
+  outline: 2px solid #fff;
+}
+#scratchpad-layers {
+  position: fixed;
+  top: 52px;
+  right: 316px;
+  z-index: 100;
+  width: 280px;
+  max-height: 60vh;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(20, 20, 24, 0.94);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  color: #eee;
+  font-size: 13px;
+}
+#scratchpad-layers header,
+#scratchpad-layers footer,
+#scratchpad-layers li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+#scratchpad-layers header strong {
+  flex: 1;
+}
+#scratchpad-layers footer {
+  margin-top: 6px;
+  color: #bbb;
+  font-size: 12px;
+}
+#scratchpad-layers ol {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+#scratchpad-layers li {
+  padding: 2px;
+  border-radius: 4px;
+}
+#scratchpad-layers li.active {
+  background: rgba(58, 110, 165, 0.45);
+}
+#scratchpad-layers button {
+  width: 24px;
+  height: 24px;
+  min-height: 0;
+  padding: 0;
+  flex: none;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: transparent;
+  color: #ccc;
+  line-height: 1;
+  cursor: pointer;
+}
+#scratchpad-layers button[aria-pressed="true"]:not(.name) {
+  background: #3a6ea5;
+  border-color: #6fa3d8;
+  color: #fff;
+}
+#scratchpad-layers .name,
+#scratchpad-layers li input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  height: 24px;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 6px;
+}
+#scratchpad-layers button:focus-visible {
+  outline: 2px solid #fff;
+}
