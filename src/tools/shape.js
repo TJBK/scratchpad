@@ -119,9 +119,7 @@ export default {
     const minCanvasDistance = MIN_SHAPE_DRAG_PX / canvas.stage.scale.x;
     if (dragDistance < minCanvasDistance) return;
 
-    // The arrow flag routes rendering through drawLine: core's miter joins skew the doubled-back head.
-    const style = completedShape.kind === "arrow" ? { ...completedShape.style, arrow: true } : completedShape.style;
-    await createShape(buildShapePolyline(completedShape), style, completedShape.scene);
+    await createShape(buildShapePolyline(completedShape), completedShape.style, completedShape.scene);
   },
 
   cancel() {

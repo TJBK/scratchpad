@@ -4,8 +4,6 @@ import { MODULE, isPolygon, isPrivateHidden, docLine, drawLine, softness } from 
 import { cardData, scheduleRender } from "./board.js";
 import { layerHides } from "./layers.js";
 
-const SHAPE_FLAGS = ["dash", "brush", "hardness", "texture", "pressure", "shadow", "arrow"];
-
 export function registerDrawingClass() {
   const Base = CONFIG.Drawing.objectClass;
 
@@ -17,7 +15,9 @@ export function registerDrawingClass() {
     _refreshShape() {
       const doc = this.document;
       const f = doc.flags[MODULE] ?? {};
-      if (!isPolygon(doc) || !SHAPE_FLAGS.some(k => f[k] != null)) {
+      // Every polyline goes through drawLine: core uses butt caps and miter joins, so even
+      // the default round tip would come out square-ended.
+      if (!isPolygon(doc)) {
         this.shape.filters = null;
         return super._refreshShape();
       }

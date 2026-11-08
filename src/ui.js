@@ -179,6 +179,15 @@ export function syncUI() {
   overlay?.classList.toggle("text", tool === TOOL.TEXT);
 
   if (palette) {
+    // Settings can change outside the palette (another window, a macro); a stale control
+    // would show a choice that isn't applied, and re-picking it fires no change event.
+    for (const el of palette.querySelectorAll("select[name], input[type=range][name]")) {
+      const value = setting(el.name);
+      if (value !== "" && value != null) el.value = value; // "" = font unset: keep the default shown
+      const out = palette.querySelector(`[data-out=${el.name}]`);
+      if (out) out.textContent = el.value;
+    }
+    for (const btn of palette.querySelectorAll("[data-toggle]")) btn.setAttribute("aria-pressed", String(Boolean(setting(btn.dataset.toggle))));
     palette.classList.toggle("active", Boolean(tool));
     const short = tool?.replace(`${MODULE}-`, "");
     for (const el of palette.querySelectorAll("[data-for]")) {
