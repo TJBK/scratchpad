@@ -197,12 +197,21 @@
   gap: 4px;
   white-space: nowrap;
 }
-#scratchpad-palette output {
-  min-width: 2ch;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  color: #bbb;
+#scratchpad-palette input[type="number"] {
+  width: 5ch;
+  height: 22px;
+  padding: 0 4px;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #eee;
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+#scratchpad-palette input[type="number"]:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 0;
 }
 
 /* Current-layer badge (right, beside the sidebar) and the layers panel docked under it */

@@ -55,7 +55,8 @@ const esc = s => foundry.utils.escapeHTML(String(s));
 const rawOption = (val, label, cur) => `<option value="${esc(val)}" ${val === cur ? "selected" : ""}>${esc(label)}</option>`;
 const option = (val, key, cur) => rawOption(val, t(key), cur);
 const slider = (forTools, key, name, min, max) =>
-  `<label data-for="${forTools}">${t(key)} <input type="range" name="${name}" min="${min}" max="${max}"><output data-out="${name}"></output></label>`;
+  `<label data-for="${forTools}">${t(key)} <input type="range" name="${name}" min="${min}" max="${max}">
+    <input type="number" data-out="${name}" min="${min}" max="${max}" step="1" aria-label="${t(key)}"></label>`;
 const toggle = (forTools, name, key, icon) =>
   `<button type="button" class="toggle" data-for="${forTools}" data-toggle="${name}" aria-pressed="${Boolean(setting(name))}"
     data-tooltip="${t(key)}" aria-label="${t(key)}"><i class="fa-solid ${icon}"></i></button>`;
@@ -128,7 +129,7 @@ function mountPalette() {
   for (const name of ["width", "textSize", "eraser", "hardness"]) {
     const val = setting(name);
     palette.querySelector(`[name=${name}]`).value = val;
-    palette.querySelector(`[data-out=${name}]`).textContent = val;
+    palette.querySelector(`[data-out=${name}]`).value = val;
   }
 
   const applyColor = c => {
@@ -152,12 +153,20 @@ function mountPalette() {
   palette.addEventListener("input", e => {
     if (e.target.type !== "range") return;
     const { name, value } = e.target;
-    palette.querySelector(`[data-out=${name}]`).textContent = value;
+    palette.querySelector(`[data-out=${name}]`).value = value;
     if (name === "textSize" && activeTool() === TOOL.TEXT) updateActiveEditor({ fontSize: Number(value) });
   });
 
   palette.addEventListener("change", e => {
-    const { name, value, type } = e.target;
+    let { name, value, type } = e.target;
+    const box = e.target.dataset.out ? e.target : null;
+    if (box) {
+      // A typed number drives its slider, which also clamps it to the slider's min/max.
+      const range = palette.querySelector(`input[type=range][name=${box.dataset.out}]`);
+      if (box.value !== "" && Number.isFinite(Number(box.value))) range.value = box.value;
+      box.value = range.value;
+      ({ name, value, type } = range);
+    }
     if (!name) return;
     if (name === "color") return applyColor(value);
 
@@ -179,6 +188,15 @@ export function syncUI() {
   overlay?.classList.toggle("text", tool === TOOL.TEXT);
 
   if (palette) {
+    // Settings can change outside the palette (another window, a macro); a stale control
+    // would show a choice that isn't applied, and re-picking it fires no change event.
+    for (const el of palette.querySelectorAll("select[name], input[type=range][name]")) {
+      const value = setting(el.name);
+      if (value !== "" && value != null) el.value = value; // "" = font unset: keep the default shown
+      const out = palette.querySelector(`[data-out=${el.name}]`);
+      if (out) out.value = el.value;
+    }
+    for (const btn of palette.querySelectorAll("[data-toggle]")) btn.setAttribute("aria-pressed", String(Boolean(setting(btn.dataset.toggle))));
     palette.classList.toggle("active", Boolean(tool));
     const short = tool?.replace(`${MODULE}-`, "");
     for (const el of palette.querySelectorAll("[data-for]")) {

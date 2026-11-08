@@ -154,10 +154,13 @@ function strokePath(g, style, points, closed) {
   const segments = isDashed ? dashSegments(points, ...getDashPattern(style.dash, style.width)) : [points];
 
   // Foundry's smooth-graphics lines ignore textures, so textured brushes paint overlapping tip stamps
-  // with a world-aligned texture fill instead.
+  // with a world-aligned texture fill instead. The flat nib stamps too: a fixed-angle ellipse is what
+  // makes its width change with stroke direction, like a calligraphy pen.
   const texture = style.texture ? brushTexture(style.texture) : null;
-  if (texture) {
-    g.lineStyle(0).beginTextureFill({ texture, color: 0xffffff, alpha });
+  if (texture || style.brush === "flat") {
+    g.lineStyle(0);
+    if (texture) g.beginTextureFill({ texture, color: 0xffffff, alpha });
+    else g.beginFill(pixiColor(style.color), alpha);
     const step = Math.max(1, style.width * 0.2);
     for (const seg of segments) {
       for (const [x, y, s] of resample(seg, step, pressure)) stamp(g, style.brush, x, y, (style.width / 2) * Math.max(0.1, s));
@@ -167,7 +170,8 @@ function strokePath(g, style, points, closed) {
   }
 
   const [cap, join] = BRUSH_CAPS[style.brush] ?? BRUSH_CAPS.round;
-  const setWidth = width => g.lineStyle({ width, color: pixiColor(style.color), alpha, cap, join });
+  // PIXI's default miter limit (10) turns sharp corners of a square tip into long spikes.
+  const setWidth = width => g.lineStyle({ width, color: pixiColor(style.color), alpha, cap, join, miterLimit: 2 });
 
   if (pressure) {
     // Round caps hide the width steps between segments.

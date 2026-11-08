@@ -158,6 +158,23 @@ export function erasePath(polylines, eraserPath, radius) {
   return polylines;
 }
 
+/**
+ * Erase marks ({ r, p: [x0, y0, x1, y1, ...] }, relative to a drawing's origin) moved by (dx, dy),
+ * keeping only those that reach `box`, which is in the new coordinates.
+ */
+export function shiftMarks(marks, dx, dy, box) {
+  const out = [];
+  for (const { r, p } of marks ?? []) {
+    const q = p.map((v, i) => Math.round((v + (i % 2 ? dy : dx)) * 10) / 10);
+    let hit = false;
+    for (let i = 0; i < q.length && !hit; i += 2) {
+      hit = q[i] >= box.minX - r && q[i] <= box.maxX + r && q[i + 1] >= box.minY - r && q[i + 1] <= box.maxY + r;
+    }
+    if (hit) out.push({ r, p: q });
+  }
+  return out;
+}
+
 export function getDashPattern(dashStyle, strokeWidth) {
   return dashStyle === "dotted"
     ? [0.01, Math.max(3, strokeWidth * 2)]

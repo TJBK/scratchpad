@@ -1,9 +1,10 @@
 // Partial eraser tool that slices circular paths out of existing polyline drawings rather than deleting whole strokes.
 import { MODULE, view, setting, canEdit, isPolygon, shapeFor, docLine, docBounds, inBounds, pushUndo } from "../core.js";
-import { bounds, erasePath, distanceToPolyline, nearestValues } from "../geometry.js";
+import { bounds, erasePath, distanceToPolyline, nearestValues, shiftMarks } from "../geometry.js";
 
 const ERASER_COLOR = 0xff5555;
 const MIN_FRAGMENT_SIZE = 0.1;
+const MARKS_KEY = `flags.${MODULE}.erase`;
 
 let activeEraser = null; // { path, radius, scene }
 let hoverPoint = null;
@@ -61,6 +62,8 @@ export default {
     const pathBox = bounds(path);
     const deleted = [];
     const created = [];
+    const updates = [];
+    const prevUpdates = [];
     const whole = setting("eraseMode") === "whole";
 
     for (const doc of scene.drawings) {
@@ -79,8 +82,22 @@ export default {
       }
 
       const line = docLine(doc);
-      const pieces = erasePath([line], path, hitRadius);
-      if (pieces.length === 1 && pieces[0] === line) continue;
+      if (!path.some(p => distanceToPolyline(p, line) <= hitRadius)) continue;
+
+      // The line itself is only cut where the eraser covers its whole width. Everywhere else the
+      // eraser path is kept as a mark that render.js masks out, so only what was under it vanishes.
+      const pad = doc.strokeWidth * 1.5 + 8; // stroke half-width plus drop shadow offset
+      const ownBox = { minX: -pad, minY: -pad, maxX: doc.shape.width + pad, maxY: doc.shape.height + pad };
+      const mark = { r: Math.round(radius * 10) / 10, p: path.flatMap(([x, y]) => [x - doc.x, y - doc.y]) };
+      const marks = [...(doc.getFlag(MODULE, "erase") ?? []), ...shiftMarks([mark], 0, 0, ownBox)];
+      const cutRadius = radius - doc.strokeWidth / 2;
+      const pieces = cutRadius > 0 && !doc.fillType ? erasePath([line], path, cutRadius) : [line];
+
+      if (pieces.length === 1 && pieces[0] === line) {
+        updates.push({ _id: doc.id, [MARKS_KEY]: marks });
+        prevUpdates.push({ _id: doc.id, [MARKS_KEY]: doc.getFlag(MODULE, "erase") ?? [] });
+        continue;
+      }
 
       const { _id, ...base } = doc.toObject();
       deleted.push({ _id, ...base });
@@ -89,17 +106,21 @@ export default {
       for (const piece of pieces) {
         const pieceBox = bounds(piece);
         if (pieceBox.maxX - pieceBox.minX < MIN_FRAGMENT_SIZE && pieceBox.maxY - pieceBox.minY < MIN_FRAGMENT_SIZE) continue;
-        const flags = pressure
-          ? foundry.utils.mergeObject(base.flags, { [MODULE]: { pressure: nearestValues(line, pressure, piece) } }, { inplace: false })
-          : base.flags;
+        const local = { minX: -pad, minY: -pad, maxX: pieceBox.maxX - pieceBox.minX + pad, maxY: pieceBox.maxY - pieceBox.minY + pad };
+        const own = {
+          erase: shiftMarks(marks, doc.x - pieceBox.minX, doc.y - pieceBox.minY, local),
+          ...(pressure && { pressure: nearestValues(line, pressure, piece) })
+        };
+        const flags = foundry.utils.mergeObject(base.flags, { [MODULE]: own }, { inplace: false });
         created.push({ ...base, flags, x: pieceBox.minX, y: pieceBox.minY, shape: { ...base.shape, ...shapeFor(piece, pieceBox) } });
       }
     }
 
-    if (!deleted.length) return;
+    if (!deleted.length && !updates.length) return;
     const createdDocs = created.length ? await scene.createEmbeddedDocuments("Drawing", created) : [];
-    await scene.deleteEmbeddedDocuments("Drawing", deleted.map(d => d._id));
-    pushUndo({ scene: scene.id, created: createdDocs.map(d => d.id), deleted });
+    if (deleted.length) await scene.deleteEmbeddedDocuments("Drawing", deleted.map(d => d._id));
+    if (updates.length) await scene.updateEmbeddedDocuments("Drawing", updates);
+    pushUndo({ scene: scene.id, created: createdDocs.map(d => d.id), deleted, updated: prevUpdates });
   }
 };
 
@@ -122,5 +143,6 @@ function drawStamp([x, y], radius) {
 }
 
 function isErasable(doc) {
-  return canEdit(doc) && !doc.rotation && !doc.text && isPolygon(doc) && doc.fillType === CONST.DRAWING_FILL_TYPES.NONE;
+  // Filled shapes are erasable too: they only get erase marks, since cutting would break the fill.
+  return canEdit(doc) && !doc.rotation && !doc.text && isPolygon(doc);
 }
