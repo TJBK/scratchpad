@@ -3,8 +3,17 @@ import assert from "node:assert/strict";
 import {
   eraseCircle, erasePath, simplify, chaikin, bounds,
   dashSegments, getDashPattern, distanceToPolyline, pointInPolygon, polylineHitsPolygon,
-  snapAngle, snapSquare, rectShape, ellipseShape, arrowShape, polyShape, nearestValues, resample
+  snapAngle, snapSquare, rectShape, ellipseShape, arrowShape, polyShape, nearestValues, resample,
+  shiftMarks
 } from "../src/geometry.js";
+
+test("shiftMarks moves erase marks to a new origin and drops ones that miss", () => {
+  const marks = [{ r: 5, p: [100, 10, 110, 10] }, { r: 5, p: [400, 10] }];
+  const box = { minX: 0, minY: 0, maxX: 120, maxY: 20 };
+  assert.deepEqual(shiftMarks(marks, -50, 0, box), [{ r: 5, p: [50, 10, 60, 10] }]);
+  assert.deepEqual(shiftMarks(marks, 0, 0, { minX: 0, minY: 0, maxX: 94, maxY: 20 }), []);
+  assert.deepEqual(shiftMarks(undefined, 0, 0, box), []);
+});
 
 const near = (a, b) => a.every((v, i) => Math.abs(v - b[i]) < 1e-9);
 

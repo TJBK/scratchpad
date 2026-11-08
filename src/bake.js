@@ -97,6 +97,8 @@ function copyOf(obj) {
   if (obj instanceof PIXI.smooth.SmoothGraphics) {
     copy = new PIXI.smooth.SmoothGraphics(obj.geometry);
     copy.filters = obj.filters;
+    // Partial-erase mask (render.js); without it erased parts would reappear in the bake.
+    if (obj.spEraseMask) copy.mask = copy.addChild(new PIXI.Graphics(obj.spEraseMask.geometry));
     for (const child of obj.children) {
       if (!(child instanceof PIXI.Text) || !child.visible) continue;
       const text = copy.addChild(new PIXI.Text(child.text, child.style));

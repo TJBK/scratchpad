@@ -30,6 +30,7 @@ export function registerDrawingClass() {
         ...f
       }, docLine(doc, 0, 0));
       this.shape.filters = softness(f.hardness, doc.strokeWidth);
+      applyEraseMask(this.shape, f.erase);
     }
 
     _getTextStyle() {
@@ -47,6 +48,59 @@ export function registerDrawingClass() {
       this.renderFlags.set({ refreshState: true, refreshShape: true, refreshText: Boolean(this.text) });
     }
   };
+}
+
+const CLIPPER_SCALE = 10; // Clipper works in integers; 0.1px precision
+
+// PIXI 7 has no inverse masks, so the mask is the drawing's bounds minus the eraser paths
+// (each a round-ended band of the eraser's radius), computed with Foundry's bundled Clipper.
+function applyEraseMask(g, marks) {
+  if (g.spEraseMask) {
+    g.mask = null;
+    g.spEraseMask.destroy();
+    g.spEraseMask = null;
+  }
+  const C = globalThis.ClipperLib;
+  if (!marks?.length || !C) return;
+
+  const S = CLIPPER_SCALE;
+  const pt = (x, y) => ({ X: Math.round(x * S), Y: Math.round(y * S) });
+  const b = g.getLocalBounds();
+  const subject = [pt(b.left - 1, b.top - 1), pt(b.right + 1, b.top - 1), pt(b.right + 1, b.bottom + 1), pt(b.left - 1, b.bottom + 1)];
+
+  const clip = new C.Clipper();
+  clip.AddPath(subject, C.PolyType.ptSubject, true);
+  for (const { r, p } of marks) {
+    const offset = new C.ClipperOffset();
+    const path = [];
+    for (let i = 0; i < p.length; i += 2) path.push(pt(p[i], p[i + 1]));
+    offset.AddPath(path, C.JoinType.jtRound, C.EndType.etOpenRound);
+    const band = new C.Paths();
+    offset.Execute(band, r * S);
+    clip.AddPaths(band, C.PolyType.ptClip, true);
+  }
+  const tree = new C.PolyTree();
+  clip.Execute(C.ClipType.ctDifference, tree, C.PolyFillType.pftNonZero, C.PolyFillType.pftNonZero);
+
+  const mask = new PIXI.Graphics().beginFill(0xffffff);
+  const flat = contour => contour.flatMap(q => [q.X / S, q.Y / S]);
+  // PolyTree alternates: outer contours hold holes, holes hold islands (more outers).
+  const drawOuters = node => {
+    for (const outer of node.Childs()) {
+      mask.drawPolygon(flat(outer.Contour()));
+      const holes = outer.Childs();
+      if (holes.length) {
+        mask.beginHole();
+        for (const hole of holes) mask.drawPolygon(flat(hole.Contour()));
+        mask.endHole();
+      }
+      holes.forEach(drawOuters);
+    }
+  };
+  drawOuters(tree);
+  mask.endFill();
+  g.spEraseMask = g.addChild(mask);
+  g.mask = mask;
 }
 
 export function onRefreshDrawing(drawing) {
