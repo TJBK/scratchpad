@@ -31,3 +31,11 @@ For the latest dev build, use this instead:
 ```
 https://github.com/TJBK/scratchpad/releases/download/dev/module.json
 ```
+
+## Contributing
+
+See [CONTRIBUTING.md](.github/CONTRIBUTING.md). In short: open pull requests into `dev`, never into `main`.
+
+## AI disclosure
+
+AI tools are used to help write the code for this module.
