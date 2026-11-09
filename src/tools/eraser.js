@@ -1,6 +1,6 @@
 // Partial eraser tool that slices circular paths out of existing polyline drawings rather than deleting whole strokes.
 import { MODULE, view, setting, canEdit, isPolygon, shapeFor, docLine, docBounds, inBounds, pushUndo } from "../core.js";
-import { bounds, erasePath, distanceToPolyline, nearestValues, shiftMarks } from "../geometry.js";
+import { bounds, erasePath, distanceToPolyline, nearestValues, shiftMarks, simplify } from "../geometry.js";
 
 const ERASER_COLOR = 0xff5555;
 const MIN_FRAGMENT_SIZE = 0.1;
@@ -60,6 +60,8 @@ export default {
     if (hoverPoint) drawCursor(hoverPoint);
 
     const pathBox = bounds(path);
+    // Stored marks drop the interpolated in-between points, which only matter for cutting.
+    const markPath = simplify(path, radius / 20);
     const deleted = [];
     const created = [];
     const updates = [];
@@ -88,7 +90,7 @@ export default {
       // eraser path is kept as a mark that render.js masks out, so only what was under it vanishes.
       const pad = doc.strokeWidth * 1.5 + 8; // stroke half-width plus drop shadow offset
       const ownBox = { minX: -pad, minY: -pad, maxX: doc.shape.width + pad, maxY: doc.shape.height + pad };
-      const mark = { r: Math.round(radius * 10) / 10, p: path.flatMap(([x, y]) => [x - doc.x, y - doc.y]) };
+      const mark = { r: Math.round(radius * 10) / 10, p: markPath.flatMap(([x, y]) => [x - doc.x, y - doc.y]) };
       const marks = [...(doc.getFlag(MODULE, "erase") ?? []), ...shiftMarks([mark], 0, 0, ownBox)];
       const cutRadius = radius - doc.strokeWidth / 2;
       const pieces = cutRadius > 0 && !doc.fillType ? erasePath([line], path, cutRadius) : [line];

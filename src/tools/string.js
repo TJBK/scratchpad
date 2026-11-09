@@ -1,7 +1,7 @@
 // Investigation board string tool: drag from one card to another to connect them with a string;
 // drag between two already-connected cards to cut the string.
 
-import { MODULE, t, view, penColor, pixiColor, pushUndo } from "../core.js";
+import { MODULE, t, view, penColor, pixiColor, canEdit, pushUndo } from "../core.js";
 import { cardAt, cardLinks, pin, STRING_SAG_FACTOR } from "../board.js";
 
 const PREVIEW_STRING_WIDTH_PX = 3;
@@ -41,6 +41,11 @@ export default {
     if (toCard && toCard !== completedDrag.fromCard) {
       await toggleCardLink(completedDrag.fromCard, toCard, completedDrag.color);
     }
+  },
+
+  cancel() {
+    activeStringDrag = null;
+    view.preview?.clear();
   }
 };
 
@@ -73,9 +78,9 @@ async function toggleCardLink(cardA, cardB, color) {
     cardLinks(card).some(link => link?.to === getPartnerCard(card).id)
   );
 
-  // Modify the card that holds the existing link, or whichever card the current user owns.
-  const targetDoc = existingHolder ?? [cardA, cardB].find(card => card.isOwner);
-  if (!targetDoc?.isOwner) {
+  // Modify the card that holds the existing link, or whichever card the current user can edit.
+  const targetDoc = existingHolder ?? [cardA, cardB].find(canEdit);
+  if (!targetDoc || !canEdit(targetDoc)) {
     ui.notifications.warn(t("NotOwner"));
     return;
   }

@@ -21,6 +21,7 @@ const layerOf = doc => {
 };
 
 const hiddenForMe = layer => layer.hidden || (layer.gmOnly && !game.user.isGM);
+const isUsable = layer => !hiddenForMe(layer) && !layer.locked;
 export const layerHides = doc => hiddenForMe(layerOf(doc));
 export const layerBlocksEdit = doc => {
   const layer = layerOf(doc);
@@ -34,7 +35,7 @@ export const visibleToPlayers = doc => {
 // The layer new drawings go into: the user's choice for this scene if usable, else the top usable layer.
 export function activeLayer(scene = canvas.scene) {
   const layers = getLayers(scene);
-  const usable = layers.filter(l => !hiddenForMe(l) && !l.locked);
+  const usable = layers.filter(isUsable);
   const chosen = setting("activeLayers")?.[scene?.id];
   return (usable.find(l => l.id === chosen) ?? usable.at(-1) ?? layers.at(-1)).id;
 }
@@ -52,7 +53,14 @@ export function registerLayerHooks() {
   Hooks.on("preCreateDrawing", (doc, data, options, userId) => {
     if (userId !== game.user.id || !doc.parent) return;
     const layers = getLayers(doc.parent);
-    const id = layers.some(l => l.id === data.flags?.[MODULE]?.layer) ? data.flags[MODULE].layer : activeLayer(doc.parent);
+    const given = layers.some(l => l.id === data.flags?.[MODULE]?.layer);
+    // No layer to draw on: refuse, rather than save a stroke its author cannot see or edit.
+    // Data that names its layer (undo, eraser pieces) is restoring a drawing and always goes through.
+    if (!given && !layers.some(isUsable)) {
+      ui.notifications.warn(t("LayerNoneUsable"));
+      return false;
+    }
+    const id = given ? data.flags[MODULE].layer : activeLayer(doc.parent);
     const index = layers.findIndex(l => l.id === id);
     const inBand = s => Math.floor(s / SORT_BAND) === index;
     const top = doc.parent.drawings.reduce((m, d) => (inBand(d.sort) ? Math.max(m, d.sort) : m), index * SORT_BAND);

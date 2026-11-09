@@ -1,6 +1,7 @@
 // Bakes the scene background plus visible Drawings (and optionally Tiles) into a single background image.
-import { MODULE, t, pushUndo, pixiColor } from "./core.js";
+import { MODULE, t, pushUndo, pixiColor, docBounds } from "./core.js";
 import { visibleToPlayers } from "./layers.js";
+import { cardData } from "./board.js";
 
 const MAX_BAKE_SIZE = 8192;
 
@@ -34,9 +35,11 @@ export async function openBakeDialog() {
 export async function bakeScene({ tiles = false, remove = true } = {}) {
   const scene = canvas.scene;
   // Only what players can see is baked: no hidden, private, hidden-layer or GM-only-layer drawings.
+  // Cards are skipped too: their text and strings live in the DOM overlay, which cannot be baked.
+  // `.visible` matches what renderSceneImage draws, so nothing is deleted without being in the image.
   const drawings = scene.drawings.filter(d =>
-    !d.hidden && !d.interface && !d.getFlag(MODULE, "private") && visibleToPlayers(d) && d.object?.shape);
-  const bakedTiles = tiles ? scene.tiles.filter(tile => !tile.hidden && tile.object?.mesh) : [];
+    !d.hidden && !d.interface && !d.getFlag(MODULE, "private") && !cardData(d) && visibleToPlayers(d) && d.object?.shape?.visible);
+  const bakedTiles = tiles ? scene.tiles.filter(tile => !tile.hidden && tile.object?.mesh?.visible) : [];
 
   const blob = await renderSceneImage(drawings, bakedTiles);
   const path = await upload(blob, `${scene.id}-${Date.now()}.webp`);
@@ -44,15 +47,22 @@ export async function bakeScene({ tiles = false, remove = true } = {}) {
   // v14 keeps the background on the viewed Level; writing scene.background there is silently dropped.
   const bgDoc = canvas.level ?? scene;
   // Keep the very first original so the pre-bake background can always be restored.
-  const original = scene.getFlag(MODULE, "originalBackground") ?? bgDoc.background.src ?? "";
-  await scene.update({ [`flags.${MODULE}.originalBackground`]: original });
+  const flag = canvas.level ? `originalBackgrounds.${canvas.level.id}` : "originalBackground";
+  const original = scene.getFlag(MODULE, flag) ?? bgDoc.background.src ?? "";
+  await scene.update({ [`flags.${MODULE}.${flag}`]: original });
   await bgDoc.update({ "background.src": path });
   // Never delete drawings unless the baked image really became the background.
   if (bgDoc.background.src !== path) throw new Error("background update was not applied");
 
   if (!remove) return;
-  if (drawings.length) {
-    const deleted = drawings.map(d => d.toObject());
+  // The image only covers the scene rectangle; drawings reaching into the padding stay.
+  const rect = canvas.dimensions.sceneRect;
+  const inScene = drawings.filter(d => {
+    const b = docBounds(d);
+    return !d.rotation && b.minX >= rect.left && b.minY >= rect.top && b.maxX <= rect.right && b.maxY <= rect.bottom;
+  });
+  if (inScene.length) {
+    const deleted = inScene.map(d => d.toObject());
     await scene.deleteEmbeddedDocuments("Drawing", deleted.map(d => d._id));
     pushUndo({ scene: scene.id, deleted });
   }
@@ -76,7 +86,7 @@ async function renderSceneImage(drawings, tiles) {
   const backdrop = stage.addChild(new PIXI.Graphics());
   backdrop.beginFill(pixiColor(canvas.level?.background.color ?? canvas.scene.backgroundColor ?? "#999999")).drawRect(rect.x, rect.y, rect.width, rect.height).endFill();
   for (const child of canvas.primary.children) {
-    if (keep.has(child) && child.visible) stage.addChild(copyOf(child));
+    if (keep.has(child) && child.visible) stage.addChild(copyOf(child, scale / canvas.stage.scale.x));
   }
 
   const rt = PIXI.RenderTexture.create({ width, height });
@@ -92,11 +102,12 @@ async function renderSceneImage(drawings, tiles) {
 }
 
 // A plain PIXI stand-in for a primary-group object, positioned identically.
-function copyOf(obj) {
+function copyOf(obj, blurRatio) {
   let copy;
   if (obj instanceof PIXI.smooth.SmoothGraphics) {
     copy = new PIXI.smooth.SmoothGraphics(obj.geometry);
-    copy.filters = obj.filters;
+    // Soft-brush blur is sized for the current zoom (core.js softness); resize it for the bake scale.
+    copy.filters = obj.filters?.map(f => (f instanceof PIXI.BlurFilter ? new PIXI.BlurFilter(f.blur * blurRatio, 3) : f)) ?? null;
     // Partial-erase mask (render.js); without it erased parts would reappear in the bake.
     if (obj.spEraseMask) copy.mask = copy.addChild(new PIXI.Graphics(obj.spEraseMask.geometry));
     for (const child of obj.children) {

@@ -5,7 +5,7 @@ import { mountUI, syncUI, attachCanvas } from "./ui.js";
 import { onSocket } from "./tools/pen.js";
 import { refreshSelection, deleteSelected, selectedDrawings } from "./tools/select.js";
 import { registerLayerHooks, mountLayersPanel } from "./layers.js";
-import { onRefreshDrawing, registerDrawingClass } from "./render.js";
+import { onRefreshDrawing, onCanvasPan, registerDrawingClass } from "./render.js";
 import { openBakeDialog } from "./bake.js";
 import { mountBoard, scheduleRender } from "./board.js";
 import { cancelPolygon } from "./tools/shape.js";
@@ -103,6 +103,7 @@ Hooks.on("canvasTearDown", () => {
 
 Hooks.on("renderSceneControls", syncUI);
 Hooks.on("refreshDrawing", onRefreshDrawing);
+Hooks.on("canvasPan", onCanvasPan);
 Hooks.on("createDrawing", scheduleRender);
 
 Hooks.on("updateDrawing", () => {

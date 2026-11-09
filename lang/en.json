@@ -96,7 +96,8 @@
     "ClearFormat": "Clear formatting",
     "Save": "Save",
     "Cancel": "Cancel",
-    "NotOwner": "You don't own that card.",
+    "NotOwner": "You can't edit that card.",
+    "LayerNoneUsable": "Every layer is hidden or locked, so there is nowhere to draw.",
     "Undo": "Undo last sketch action",
     "Redo": "Redo last sketch action",
     "DeleteSelection": "Delete lasso selection"

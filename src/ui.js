@@ -25,6 +25,7 @@ const SWATCHES = ["#000000", "#e03131", "#1971c2", "#2f9e44", "#f08c00", "#fffff
 let board, overlay, palette;
 let gesture = null;
 let activePointerId = null;
+let lastTool = null;
 
 export function mountUI() {
   board = document.getElementById("board");
@@ -208,13 +209,17 @@ export function syncUI() {
   if (tool !== TOOL.SELECT) clearSelection();
   if (tool !== TOOL.SHAPE) cancelPolygon();
   if (tool !== TOOL.TEXT) closeEditor();
-  if (tool !== TOOL.ERASER) HANDLERS[TOOL.ERASER]?.leave?.();
+  // Only on leaving the eraser: its leave() clears the preview the other tools share.
+  if (lastTool === TOOL.ERASER && tool !== TOOL.ERASER) eraser.leave();
+  lastTool = tool;
 }
 
 export function attachCanvas() {
+  resetRemote();
+  // ControlsLayer's teardown leaves foreign children alone, so the previous pair must be removed here.
+  for (const old of [view.preview, view.remoteLayer]) if (old && !old.destroyed) old.destroy({ children: true });
   view.preview = canvas.controls.addChild(new PIXI.Graphics());
   view.remoteLayer = canvas.controls.addChild(new PIXI.Container());
-  resetRemote();
   cancelPolygon();
   clearSelection();
   closeEditor();
