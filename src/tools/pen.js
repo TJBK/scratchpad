@@ -1,12 +1,16 @@
 // Freehand pen tool with Chaikin smoothing, Ramer-Douglas-Peucker simplification, and live socket broadcast.
 import { MODULE, view, setting, penStyle, lineData, drawLine, pushUndo } from "../core.js";
 import { chaikin, simplify, nearestValues } from "../geometry.js";
+import { activeLayerShared } from "../layers.js";
 
 const SOCKET_EVENT = `module.${MODULE}`;
 const MIN_POINT_DISTANCE_PX = 2;
 const SOCKET_FLUSH_INTERVAL_MS = 50;
 const SIMPLIFY_TOLERANCE = 0.5;
 const CHAIKIN_ITERATIONS = 2;
+const MAX_REMOTE_WIDTH = 150; // the palette's own maximum
+const MAX_REMOTE_POINTS = 20000;
+const isPoint = p => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]);
 
 let activeStroke = null; // { points, style, scene, id }
 let nextStrokeId = 0;
@@ -89,7 +93,8 @@ export default {
 
 
 function emitStrokeEvent(payload, targetScene = activeStroke?.scene ?? canvas.scene) {
-  if (!targetScene || setting("private")) return; // private strokes are never broadcast live
+  // Private strokes and strokes on a layer players cannot see are never broadcast live.
+  if (!targetScene || setting("private") || !activeLayerShared(targetScene)) return;
   game.socket.emit(SOCKET_EVENT, {
     id: activeStroke?.id,
     ...payload,
@@ -125,14 +130,18 @@ export function onSocket(message) {
 
   const existing = remoteStrokes.get(message.user);
 
-  if (message.t === "start" && message.style && Array.isArray(message.p)) {
+  // Messages come from other clients: bound the width and point count, and drop non-numeric points.
+  if (message.t === "start" && message.style && isPoint(message.p)) {
     existing?.graphics.destroy();
     const graphics = view.remoteLayer.addChild(new PIXI.Graphics());
-    remoteStrokes.set(message.user, { graphics, id: message.id, style: message.style, points: [message.p] });
-    drawLine(graphics, message.style, [message.p]);
+    const width = Math.min(MAX_REMOTE_WIDTH, Math.max(1, Number(message.style.width) || 1));
+    const style = { ...message.style, width, pressure: null, fill: null };
+    remoteStrokes.set(message.user, { graphics, id: message.id, style, points: [message.p] });
+    drawLine(graphics, style, [message.p]);
   } else if (message.t === "move" && existing?.id === message.id && Array.isArray(message.pts)) {
-    for (let i = 0; i < message.pts.length - 1; i += 2) {
-      existing.points.push([message.pts[i], message.pts[i + 1]]);
+    for (let i = 0; i < message.pts.length - 1 && existing.points.length < MAX_REMOTE_POINTS; i += 2) {
+      const point = [message.pts[i], message.pts[i + 1]];
+      if (isPoint(point)) existing.points.push(point);
     }
     drawLine(existing.graphics, existing.style, existing.points);
   } else if (message.t === "end" && existing?.id === message.id) {

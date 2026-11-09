@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   eraseCircle, erasePath, simplify, chaikin, bounds,
   dashSegments, getDashPattern, distanceToPolyline, pointInPolygon, polylineHitsPolygon,
-  snapAngle, snapSquare, rectShape, ellipseShape, arrowShape, polyShape, nearestValues, resample,
+  snapAngle, snapSquare, rectShape, ellipseShape, arrowShape, polyShape, nearestValues, resample, rotateAbout,
   shiftMarks
 } from "../src/geometry.js";
 
@@ -157,4 +157,10 @@ test("resample spaces points evenly and interpolates values", () => {
   assert.deepEqual(out.map(p => p[0]), [0, 2.5, 5, 7.5, 10, 10]);
   assert.ok(Math.abs(out[2][2] - 0.5) < 1e-9);
   assert.deepEqual(resample([[0, 0], [3, 0], [3, 3]], 2).map(p => p.slice(0, 2)), [[0, 0], [2, 0], [3, 1], [3, 3], [3, 3]]);
+});
+
+test("rotateAbout turns a point around a centre, clockwise in canvas space", () => {
+  assert.ok(near(rotateAbout([10, 0], [0, 0], 90), [0, 10]));
+  assert.ok(near(rotateAbout([6, 5], [5, 5], -90), [5, 4]));
+  assert.deepEqual(rotateAbout([3, 4], [1, 1], 0), [3, 4]);
 });

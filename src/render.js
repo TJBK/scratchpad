@@ -1,6 +1,6 @@
 // Extends Foundry's Drawing placeable to render Scratchpad styles: brushes, textures, pen pressure,
 // shadows, fills, soft edges, private visibility and extra text styling.
-import { MODULE, isPolygon, isPrivateHidden, docLine, drawLine, softness, blurStrength } from "./core.js";
+import { MODULE, ownsShape, isPrivateHidden, docLine, drawLine, softness, blurStrength } from "./core.js";
 import { cardData, scheduleRender } from "./board.js";
 import { layerHides } from "./layers.js";
 
@@ -17,9 +17,10 @@ export function registerDrawingClass() {
       const f = doc.flags[MODULE] ?? {};
       // Every polyline goes through drawLine: core uses butt caps and miter joins, so even
       // the default round tip would come out square-ended.
-      if (!isPolygon(doc)) {
+      if (!ownsShape(doc)) {
         this.shape.filters = null;
-        return super._refreshShape();
+        super._refreshShape();
+        return applyEraseMask(this.shape, f.erase); // core-drawn polylines can carry erase marks too
       }
 
       drawLine(this.shape, {

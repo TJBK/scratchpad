@@ -97,6 +97,7 @@
     "Save": "Save",
     "Cancel": "Cancel",
     "NotOwner": "You can't edit that card.",
+    "UndoFailed": "That step could not be undone or redone and was skipped.",
     "LayerNoneUsable": "Every layer is hidden or locked, so there is nowhere to draw.",
     "Undo": "Undo last sketch action",
     "Redo": "Redo last sketch action",

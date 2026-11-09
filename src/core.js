@@ -1,5 +1,5 @@
 // Shared constants, state, and document/graphics helpers used across all Scratchpad tools.
-import { bounds, dashSegments, getDashPattern, resample } from "./geometry.js";
+import { bounds, dashSegments, getDashPattern, resample, rotateAbout } from "./geometry.js";
 import { brushTexture } from "./textures.js";
 import { layerBlocksEdit } from "./layers.js";
 
@@ -59,9 +59,20 @@ export function toCanvas(event) {
 }
 
 
+// v14 scene levels: a drawing limited to other levels is not on the one being viewed. Always true on v13.
+export const onViewedLevel = doc => !canvas.level || doc.includedInLevel?.(canvas.level) !== false;
+
 export const canEdit = doc =>
-  doc.isOwner && !doc.locked && (!doc.hidden || game.user.isGM) && !isPrivateHidden(doc) && !layerBlocksEdit(doc);
+  doc.isOwner && !doc.locked && (!doc.hidden || game.user.isGM) && !isPrivateHidden(doc) && !layerBlocksEdit(doc) && onViewedLevel(doc);
 export const isPolygon = doc => doc.shape.type === foundry.data.ShapeData.TYPES.POLYGON && doc.shape.points.length >= 4;
+// Polylines Scratchpad draws itself. Core's bezier smoothing and pattern fills are left to core.
+export const ownsShape = doc => isPolygon(doc) && !doc.bezierFactor && doc.fillType !== CONST.DRAWING_FILL_TYPES.PATTERN;
+
+// A point moved into the drawing's unrotated frame, so hit tests can use its stored geometry.
+export function unrotate(doc, point) {
+  const { width, height } = doc.shape;
+  return rotateAbout(point, [doc.x + width / 2, doc.y + height / 2], -(Number(doc.rotation) || 0));
+}
 export const docBounds = doc => ({ minX: doc.x, minY: doc.y, maxX: doc.x + doc.shape.width, maxY: doc.y + doc.shape.height });
 
 export function inBounds([x, y], box, pad = 0) {
@@ -251,8 +262,12 @@ async function applyHistory(op, reverseStack) {
 }
 
 // A failed step (e.g. the drawing was locked meanwhile) must not reject the queue, or every later undo is skipped.
+// The step is dropped, not retried: put back, one that keeps failing would block everything beneath it.
 const enqueue = (op, reverseStack) => {
-  historyQueue = historyQueue.then(() => applyHistory(op, reverseStack)).catch(err => console.error(err));
+  historyQueue = historyQueue.then(() => applyHistory(op, reverseStack)).catch(err => {
+    console.error(err);
+    ui.notifications.warn(t("UndoFailed"));
+  });
 };
 
 export function undo() {

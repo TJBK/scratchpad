@@ -255,6 +255,13 @@ export function polylineHitsPolygon(polyline, polygon) {
   return false;
 }
 
+export function rotateAbout([x, y], [cx, cy], degrees) {
+  if (!degrees) return [x, y];
+  const rad = (degrees * Math.PI) / 180;
+  const dx = x - cx, dy = y - cy;
+  return [cx + dx * Math.cos(rad) - dy * Math.sin(rad), cy + dx * Math.sin(rad) + dy * Math.cos(rad)];
+}
+
 export function snapAngle(start, end) {
   const step = Math.PI / 4;
   const angle = Math.round(Math.atan2(end[1] - start[1], end[0] - start[0]) / step) * step;
