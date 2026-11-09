@@ -18,6 +18,8 @@ concurrency:
 
 jobs:
   release:
+    # A manual run from any other branch would otherwise publish over the dev release.
+    if: github.ref_name == 'main' || github.ref_name == 'dev'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

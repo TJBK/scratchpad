@@ -1,6 +1,6 @@
 // Extends Foundry's Drawing placeable to render Scratchpad styles: brushes, textures, pen pressure,
 // shadows, fills, soft edges, private visibility and extra text styling.
-import { MODULE, isPolygon, isPrivateHidden, docLine, drawLine, softness } from "./core.js";
+import { MODULE, isPolygon, isPrivateHidden, docLine, drawLine, softness, blurStrength } from "./core.js";
 import { cardData, scheduleRender } from "./board.js";
 import { layerHides } from "./layers.js";
 
@@ -101,6 +101,18 @@ function applyEraseMask(g, marks) {
   mask.endFill();
   g.spEraseMask = g.addChild(mask);
   g.mask = mask;
+}
+
+// Soft-edge blur is in screen pixels, so it has to follow the zoom.
+let lastScale = 0;
+export function onCanvasPan(_canvas, { scale }) {
+  if (scale === lastScale) return;
+  lastScale = scale;
+  for (const drawing of canvas.drawings?.placeables ?? []) {
+    const hardness = drawing.document.flags[MODULE]?.hardness;
+    const blur = drawing.shape?.filters?.[0];
+    if (hardness < 100 && blur instanceof PIXI.BlurFilter) blur.blur = blurStrength(hardness, drawing.document.strokeWidth);
+  }
 }
 
 export function onRefreshDrawing(drawing) {

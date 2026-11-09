@@ -198,10 +198,12 @@ function stamp(g, brush, x, y, r) {
 }
 
 // Soft brush edge: blur scaled to stroke width and current zoom. null when fully hard.
+export const blurStrength = (hardness, width) =>
+  Math.max(0.5, (1 - hardness / 100) * width * 0.5 * (canvas.stage?.scale.x ?? 1));
+
 export function softness(hardness, width) {
   if (hardness == null || hardness >= 100) return null;
-  const strength = (1 - hardness / 100) * width * 0.5 * (canvas.stage?.scale.x ?? 1);
-  return [new PIXI.BlurFilter(Math.max(0.5, strength), 3)];
+  return [new PIXI.BlurFilter(blurStrength(hardness, width), 3)];
 }
 
 
@@ -248,16 +250,21 @@ async function applyHistory(op, reverseStack) {
   if (reverseStack.length > UNDO_LIMIT) reverseStack.shift();
 }
 
+// A failed step (e.g. the drawing was locked meanwhile) must not reject the queue, or every later undo is skipped.
+const enqueue = (op, reverseStack) => {
+  historyQueue = historyQueue.then(() => applyHistory(op, reverseStack)).catch(err => console.error(err));
+};
+
 export function undo() {
   const op = undoStack.pop();
   if (!op) return false;
-  historyQueue = historyQueue.then(() => applyHistory(op, redoStack));
+  enqueue(op, redoStack);
   return true;
 }
 
 export function redo() {
   const op = redoStack.pop();
   if (!op) return false;
-  historyQueue = historyQueue.then(() => applyHistory(op, undoStack));
+  enqueue(op, undoStack);
   return true;
 }

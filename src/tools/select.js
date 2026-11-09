@@ -15,7 +15,8 @@ export const selectedDrawings = () => selectedDocs();
 
 function selectedDocs() {
   if (!selection.scene || selection.scene !== canvas.scene) return [];
-  return [...selection.ids].map(id => selection.scene.drawings.get(id)).filter(Boolean);
+  // Re-checked every time: a drawing or its layer can be locked or hidden after it was selected.
+  return [...selection.ids].map(id => selection.scene.drawings.get(id)).filter(doc => doc && canEdit(doc));
 }
 
 function docOutline(doc) {

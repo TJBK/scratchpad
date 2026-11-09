@@ -1,5 +1,5 @@
 // Investigation board card tool: click empty canvas space to create a new card, or click an existing card to edit it.
-import { MODULE, t, setting, pushUndo } from "../core.js";
+import { MODULE, t, setting, canEdit, pushUndo } from "../core.js";
 import { cardAt, cardData } from "../board.js";
 import { sanitizeHTML, safeColor } from "../sanitize.js";
 
@@ -23,7 +23,7 @@ export default {
     if (dialogOpen) return;
     const doc = cardAt(point);
     if (!doc) return createCard(point);
-    if (!doc.isOwner) return ui.notifications.warn(t("NotOwner"));
+    if (!canEdit(doc)) return ui.notifications.warn(t("NotOwner"));
     editCard(doc);
   },
   move() {},
