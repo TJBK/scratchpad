@@ -1,7 +1,7 @@
 // Cards are filled-rectangle Drawings with `flags.scratchpad.card = { html, links: [{ to, color }] }`.
 // Their HTML and strings render in a DOM/SVG overlay that follows canvas pan and zoom.
 
-import { MODULE, isPrivateHidden } from "./core.js";
+import { MODULE, isPrivateHidden, onViewedLevel } from "./core.js";
 import { layerHides } from "./layers.js";
 import { sanitizeHTML, safeColor } from "./sanitize.js";
 import { syncEditorTransform } from "./tools/text.js";
@@ -33,7 +33,7 @@ export function pin(doc) {
 export function visibleCards() {
   if (!canvas.ready || !canvas.scene) return [];
   return canvas.scene.drawings
-    .filter(doc => cardData(doc) && (!doc.hidden || game.user.isGM) && !isPrivateHidden(doc) && !layerHides(doc))
+    .filter(doc => cardData(doc) && (!doc.hidden || game.user.isGM) && !isPrivateHidden(doc) && !layerHides(doc) && onViewedLevel(doc))
     .sort((a, b) => (a.elevation - b.elevation) || (a.sort - b.sort));
 }
 

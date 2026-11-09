@@ -1,5 +1,5 @@
 // Partial eraser tool that slices circular paths out of existing polyline drawings rather than deleting whole strokes.
-import { MODULE, view, setting, canEdit, isPolygon, shapeFor, docLine, docBounds, inBounds, pushUndo } from "../core.js";
+import { MODULE, view, setting, canEdit, isPolygon, shapeFor, docLine, docBounds, inBounds, unrotate, pushUndo } from "../core.js";
 import { bounds, erasePath, distanceToPolyline, nearestValues, shiftMarks, simplify } from "../geometry.js";
 
 const ERASER_COLOR = 0xff5555;
@@ -73,12 +73,16 @@ export default {
 
       const hitRadius = radius + doc.strokeWidth / 2;
       const box = docBounds(doc);
-      if (box.minX > pathBox.maxX + hitRadius || box.minY > pathBox.maxY + hitRadius ||
-          box.maxX < pathBox.minX - hitRadius || box.maxY < pathBox.minY - hitRadius) continue;
+      // The stored box is unrotated, so it cannot rule out a rotated drawing (whole mode only).
+      if (!doc.rotation && (box.minX > pathBox.maxX + hitRadius || box.minY > pathBox.maxY + hitRadius ||
+          box.maxX < pathBox.minX - hitRadius || box.maxY < pathBox.minY - hitRadius)) continue;
 
       if (whole) {
         const line = isPolygon(doc) ? docLine(doc) : null;
-        const hit = path.some(p => line ? distanceToPolyline(p, line) <= hitRadius : inBounds(p, box, radius));
+        const hit = path.some(raw => {
+          const p = unrotate(doc, raw);
+          return line ? distanceToPolyline(p, line) <= hitRadius : inBounds(p, box, radius);
+        });
         if (hit) deleted.push(doc.toObject());
         continue;
       }
@@ -120,7 +124,13 @@ export default {
 
     if (!deleted.length && !updates.length) return;
     const createdDocs = created.length ? await scene.createEmbeddedDocuments("Drawing", created) : [];
-    if (deleted.length) await scene.deleteEmbeddedDocuments("Drawing", deleted.map(d => d._id));
+    try {
+      if (deleted.length) await scene.deleteEmbeddedDocuments("Drawing", deleted.map(d => d._id));
+    } catch (err) {
+      // Someone else removed an original first: take the new pieces back out instead of leaving duplicates.
+      if (createdDocs.length) await scene.deleteEmbeddedDocuments("Drawing", createdDocs.map(d => d.id));
+      throw err;
+    }
     if (updates.length) await scene.updateEmbeddedDocuments("Drawing", updates);
     pushUndo({ scene: scene.id, created: createdDocs.map(d => d.id), deleted, updated: prevUpdates });
   }

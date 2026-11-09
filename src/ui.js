@@ -140,6 +140,11 @@ function mountPalette() {
     else if (activeTool() === TOOL.TEXT) updateActiveEditor({ color: c });
   };
 
+  // Pressing a label or the bar itself must not take focus from the text editor, which commits on blur.
+  palette.addEventListener("mousedown", e => {
+    if (!e.target.closest("input, select, button")) e.preventDefault();
+  });
+
   palette.addEventListener("click", e => {
     if (e.target.dataset?.color) return applyColor(e.target.dataset.color);
     const btn = e.target.closest("[data-toggle]");
@@ -223,6 +228,7 @@ export function attachCanvas() {
   cancelPolygon();
   clearSelection();
   closeEditor();
+  gesture?.cancel?.(); // a drag still in flight belongs to the old canvas
   gesture = null;
   activePointerId = null;
   touches.clear();

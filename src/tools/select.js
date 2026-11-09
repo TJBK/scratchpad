@@ -1,7 +1,7 @@
 // Click or lasso to select (Shift toggles), drag inside the box to move, Delete/Backspace to remove.
 // Palette color/style/width changes apply to the selection.
 
-import { MODULE, TOOL, view, activeTool, canEdit, isPolygon, inBounds, docLine, docBounds, pushUndo } from "../core.js";
+import { MODULE, TOOL, view, activeTool, canEdit, isPolygon, inBounds, docLine, docBounds, unrotate, pushUndo } from "../core.js";
 import { distanceToPolyline, polylineHitsPolygon, rectShape } from "../geometry.js";
 import { cardData } from "../board.js";
 
@@ -76,11 +76,12 @@ function findDrawingAt(point) {
     .filter(canEdit)
     .sort((a, b) => (b.elevation - a.elevation) || (b.sort - a.sort));
 
-  return candidates.find(doc =>
-    isPolygon(doc)
-      ? distanceToPolyline(point, docLine(doc)) <= hitPad + (doc.strokeWidth || 2) / 2
-      : inBounds(point, docBounds(doc), hitPad)
-  );
+  return candidates.find(doc => {
+    const p = unrotate(doc, point);
+    return isPolygon(doc)
+      ? distanceToPolyline(p, docLine(doc)) <= hitPad + (doc.strokeWidth || 2) / 2
+      : inBounds(p, docBounds(doc), hitPad);
+  });
 }
 
 function updateSelectionFromLasso(path, shiftKey = false) {
@@ -98,7 +99,8 @@ function updateSelectionFromLasso(path, shiftKey = false) {
 
   for (const doc of canvas.scene.drawings) {
     if (!canEdit(doc)) continue;
-    const hit = polylineHitsPolygon(docOutline(doc), path) || (!isPolygon(doc) && inBounds(path[0], docBounds(doc)));
+    const lasso = doc.rotation ? path.map(p => unrotate(doc, p)) : path;
+    const hit = polylineHitsPolygon(docOutline(doc), lasso) || (!isPolygon(doc) && inBounds(lasso[0], docBounds(doc)));
     if (hit) selection.ids.add(doc.id);
   }
 }

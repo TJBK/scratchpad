@@ -40,6 +40,12 @@ export function activeLayer(scene = canvas.scene) {
   return (usable.find(l => l.id === chosen) ?? usable.at(-1) ?? layers.at(-1)).id;
 }
 
+// False while new drawings land in a layer players cannot see, so live strokes must not be broadcast.
+export function activeLayerShared(scene = canvas.scene) {
+  const layer = getLayers(scene).find(l => l.id === activeLayer(scene));
+  return !layer.hidden && !layer.gmOnly;
+}
+
 async function setActiveLayer(id) {
   const map = { ...setting("activeLayers"), [canvas.scene.id]: id };
   await game.settings.set(MODULE, "activeLayers", map);
