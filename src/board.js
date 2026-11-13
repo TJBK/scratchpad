@@ -3,7 +3,7 @@
 
 import { MODULE, isPrivateHidden, onViewedLevel } from "./core.js";
 import { layerHides } from "./layers.js";
-import { sanitizeHTML, safeColor } from "./sanitize.js";
+import { sanitizeHTML, safeColor, textColorOn } from "./sanitize.js";
 import { syncEditorTransform } from "./tools/text.js";
 
 const PIN_TOP_OFFSET = 14;
@@ -106,7 +106,8 @@ function renderBoard() {
 
   const cardsHTML = cards.map(d =>
     `<div class="scratchpad-card${d.hidden ? " is-hidden" : ""}" ` +
-    `style="left:${+d.x}px;top:${+d.y}px;width:${+d.shape.width}px;height:${+d.shape.height}px;transform:rotate(${+d.rotation || 0}deg)">` +
+    `style="left:${+d.x}px;top:${+d.y}px;width:${+d.shape.width}px;height:${+d.shape.height}px;transform:rotate(${+d.rotation || 0}deg);` +
+    `color:${textColorOn(safeColor(d._source.fillColor, "#fff8dc"))}">` +
     `${sanitizeHTML(cardData(d)?.html)}</div>`
   ).join("");
 

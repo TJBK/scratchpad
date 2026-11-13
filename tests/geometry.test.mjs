@@ -164,3 +164,15 @@ test("rotateAbout turns a point around a centre, clockwise in canvas space", () 
   assert.ok(near(rotateAbout([6, 5], [5, 5], -90), [5, 4]));
   assert.deepEqual(rotateAbout([3, 4], [1, 1], 0), [3, 4]);
 });
+
+test("closed shapes end exactly on their first point, so their fill is kept", () => {
+  const sameEnds = pts => pts[0][0] === pts.at(-1)[0] && pts[0][1] === pts.at(-1)[1];
+  // Boxes where cos/sin of 2π used to land a rounding error away from the start.
+  for (const [a, b] of [[[400, 300], [1000, 900]], [[1116, 868], [1808, 1560]], [[500, 400], [1300, 1100]]]) {
+    assert.ok(sameEnds(ellipseShape(a, b)), `ellipse ${a}-${b}`);
+    for (const sides of [3, 4, 5, 6]) assert.ok(sameEnds(polyShape(a, b, sides)), `${sides}-gon ${a}-${b}`);
+    assert.ok(sameEnds(polyShape(a, b, 5, 0.45)), `star ${a}-${b}`);
+  }
+  assert.equal(ellipseShape([0, 0], [10, 10], 36).length, 37);
+  assert.equal(polyShape([0, 0], [10, 10], 5, 0.45).length, 11);
+});

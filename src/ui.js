@@ -3,12 +3,12 @@ import { MODULE, TOOL, view, activeTool, setting, penColor, toCanvas, t } from "
 import pen, { resetRemote } from "./tools/pen.js";
 import shape, { cancelPolygon } from "./tools/shape.js";
 import text, { closeEditor, updateActiveEditor } from "./tools/text.js";
-import select, { clearSelection, restyle } from "./tools/select.js";
+import select, { clearSelection, restyle, selectedDrawings } from "./tools/select.js";
 import eraser, { refreshEraserCursor } from "./tools/eraser.js";
 import card from "./tools/card.js";
 import string from "./tools/string.js";
 import { TEXTURES } from "./textures.js";
-import { showLayerBadge } from "./layers.js";
+import { showLayerBadge, placeOnRight } from "./layers.js";
 
 const HANDLERS = {
   [TOOL.PEN]: pen,
@@ -20,7 +20,7 @@ const HANDLERS = {
   [TOOL.STRING]: string
 };
 
-const SWATCHES = ["#000000", "#e03131", "#1971c2", "#2f9e44", "#f08c00", "#ffffff"];
+const SWATCHES = [["#000000", "Black"], ["#e03131", "Red"], ["#1971c2", "Blue"], ["#2f9e44", "Green"], ["#f08c00", "Orange"], ["#ffffff", "White"]];
 
 let board, overlay, palette;
 let gesture = null;
@@ -50,6 +50,49 @@ export function mountUI() {
 
   mountPalette();
   syncUI();
+
+  const place = () => requestAnimationFrame(placePalette);
+  window.addEventListener("resize", place);
+  Hooks.on("collapseSidebar", place);
+  Hooks.on("renderSceneNavigation", place);
+  // Fonts loading or controls wrapping change the palette's size after it was placed; the badge must follow.
+  new ResizeObserver(() => placeOnRight()).observe(palette);
+}
+
+// Centre the palette between Foundry's left column (scene controls, scene navigation) and the sidebar,
+// so it never covers them on narrow windows. The layer badge is placed after, since it avoids the palette.
+function placePalette() {
+  if (!palette) return;
+  const rightEdge = id => {
+    const r = document.getElementById(id)?.getBoundingClientRect();
+    return r?.width ? r.right : 0;
+  };
+  const sidebar = document.getElementById("sidebar")?.getBoundingClientRect();
+  palette.style.left = `${Math.max(rightEdge("scene-controls"), rightEdge("scene-navigation")) + 12}px`;
+  palette.style.right = `${Math.max(16, window.innerWidth - (sidebar?.width ? sidebar.left : window.innerWidth) + 12)}px`;
+  placeOnRight();
+}
+
+// Keybinding target: moves keyboard focus into the palette. Escape there gives it back to the canvas.
+export function focusPalette() {
+  const first = [...(palette?.querySelectorAll("button, input, select") ?? [])].find(el => el.offsetParent);
+  first?.focus();
+  return Boolean(first);
+}
+
+function setColorUI(c) {
+  palette.querySelector("[name=color]").value = c;
+  for (const btn of palette.querySelectorAll(".swatches button")) {
+    const on = btn.dataset.color.toLowerCase() === String(c).toLowerCase();
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-pressed", String(on));
+  }
+}
+
+// The fill colour only matters for shapes that are filled.
+function showFillColor() {
+  const label = palette.querySelector("[name=fillColor]").closest("label");
+  label.hidden = activeTool() !== TOOL.SHAPE || palette.querySelector("[name=fill]").value === "none";
 }
 
 const esc = s => foundry.utils.escapeHTML(String(s));
@@ -75,10 +118,14 @@ function mountPalette() {
 
   palette = document.createElement("div");
   palette.id = "scratchpad-palette";
+  palette.setAttribute("role", "region");
+  palette.setAttribute("aria-label", game.modules.get(MODULE)?.title ?? "Scratchpad");
   palette.innerHTML = `
-    <div class="swatches" data-for="pen shape text select string">${SWATCHES.map(c =>
-      `<button type="button" data-color="${c}" style="background:${c}" aria-label="${c}"></button>`).join("")}</div>
-    <input type="color" name="color" aria-label="${t("Color")}" data-for="pen shape text select string">
+    <div class="swatches" data-for="pen shape text select string">${SWATCHES.map(([c, name]) =>
+      `<button type="button" data-color="${c}" style="background:${c}" aria-label="${t(`Swatch_${name}`)}"
+        data-tooltip="${t(`Swatch_${name}`)}" aria-pressed="false"></button>`).join("")}</div>
+    <label class="colour" data-for="pen shape text select string" data-tooltip="${t("Color")}">
+      <i class="fa-solid fa-pen" aria-hidden="true"></i><input type="color" name="color" aria-label="${t("Color")}"></label>
     <span data-for="card">${t("CardHint")}</span>
     <span data-for="string">${t("StringHint")}</span>
     <select name="shape" aria-label="${t("Shape")}" data-for="shape">
@@ -88,7 +135,8 @@ function mountPalette() {
     <select name="fill" aria-label="${t("Fill")}" data-for="shape">
       ${["none", "solid", "half"].map(k => option(k, `Fill_${k}`, setting("fill"))).join("")}
     </select>
-    <input type="color" name="fillColor" aria-label="${t("FillColor")}" data-tooltip="${t("FillColor")}" data-for="shape">
+    <label class="colour" data-for="shape" data-tooltip="${t("FillColor")}">
+      <i class="fa-solid fa-fill-drip" aria-hidden="true"></i><input type="color" name="fillColor" aria-label="${t("FillColor")}"></label>
     <select name="brush" aria-label="${t("Brush")}" data-for="pen shape">
       ${["round", "square", "flat"].map(k => option(k, `Brush_${k}`, setting("brush"))).join("")}
     </select>
@@ -116,14 +164,10 @@ function mountPalette() {
     </select>
     ${slider("eraser", "EraserSize", "eraser", 4, 120)}`;
 
-  document.body.append(palette);
-
-  const setColorUI = c => {
-    palette.querySelector("[name=color]").value = c;
-    for (const btn of palette.querySelectorAll(".swatches button")) {
-      btn.classList.toggle("active", btn.dataset.color.toLowerCase() === String(c).toLowerCase());
-    }
-  };
+  // Before the layer badge and panel, so Tab moves on from the palette to them.
+  const badge = document.getElementById("scratchpad-layer-badge");
+  if (badge) badge.before(palette);
+  else document.body.append(palette);
 
   setColorUI(penColor());
   palette.querySelector("[name=fillColor]").value = setting("fillColor") || penColor();
@@ -133,11 +177,14 @@ function mountPalette() {
     palette.querySelector(`[data-out=${name}]`).value = val;
   }
 
-  const applyColor = c => {
+  // With a lasso selection, palette changes restyle it and leave the pen's own settings alone.
+  const restyling = () => activeTool() === TOOL.SELECT && selectedDrawings().length > 0;
+
+  const applyColor = (c, editorFocus = false) => {
     setColorUI(c);
+    if (restyling()) return restyle({ color: c });
     game.settings.set(MODULE, "color", c);
-    if (activeTool() === TOOL.SELECT) restyle({ color: c });
-    else if (activeTool() === TOOL.TEXT) updateActiveEditor({ color: c });
+    if (activeTool() === TOOL.TEXT) updateActiveEditor({ color: c }, { focus: editorFocus });
   };
 
   // Pressing a label or the bar itself must not take focus from the text editor, which commits on blur.
@@ -145,15 +192,22 @@ function mountPalette() {
     if (!e.target.closest("input, select, button")) e.preventDefault();
   });
 
+  // Escape hands the keyboard back to the canvas, where the drawing shortcuts work.
+  palette.addEventListener("keydown", e => {
+    if (e.key !== "Escape") return;
+    e.stopPropagation();
+    document.activeElement?.blur();
+  });
+
   palette.addEventListener("click", e => {
-    if (e.target.dataset?.color) return applyColor(e.target.dataset.color);
+    if (e.target.dataset?.color) return applyColor(e.target.dataset.color, true);
     const btn = e.target.closest("[data-toggle]");
     if (!btn) return;
     const name = btn.dataset.toggle;
     const on = !setting(name);
     btn.setAttribute("aria-pressed", String(on));
     game.settings.set(MODULE, name, on);
-    if (activeTool() === TOOL.TEXT && (name === "bold" || name === "italic")) updateActiveEditor({ [name]: on });
+    if (activeTool() === TOOL.TEXT && (name === "bold" || name === "italic")) updateActiveEditor({ [name]: on }, { focus: true });
   });
 
   palette.addEventListener("input", e => {
@@ -177,11 +231,12 @@ function mountPalette() {
     if (name === "color") return applyColor(value);
 
     const parsed = type === "range" ? Number(value) : value;
+    if ((name === "dash" || name === "width") && restyling()) return restyle({ [name]: parsed });
     game.settings.set(MODULE, name, parsed);
+    if (name === "fill") showFillColor();
 
     const tool = activeTool();
-    if (tool === TOOL.SELECT && (name === "dash" || name === "width")) restyle({ [name]: parsed });
-    else if (tool === TOOL.TEXT && name === "textSize") updateActiveEditor({ fontSize: parsed });
+    if (tool === TOOL.TEXT && name === "textSize") updateActiveEditor({ fontSize: parsed });
     else if (tool === TOOL.TEXT && (name === "font" || name === "align")) updateActiveEditor({ [name]: parsed });
     else if (tool === TOOL.ERASER && name === "eraser") refreshEraserCursor();
   });
@@ -192,6 +247,7 @@ export function syncUI() {
   overlay?.classList.toggle("active", Boolean(tool));
   overlay?.classList.toggle("eraser", tool === TOOL.ERASER);
   overlay?.classList.toggle("text", tool === TOOL.TEXT);
+  if (tool !== TOOL.SELECT) overlay?.classList.remove("move");
 
   if (palette) {
     // Settings can change outside the palette (another window, a macro); a stale control
@@ -202,12 +258,16 @@ export function syncUI() {
       const out = palette.querySelector(`[data-out=${el.name}]`);
       if (out) out.value = el.value;
     }
+    // A selection restyled in the lasso tool showed its colour here; switching tools shows the pen's again.
+    if (tool !== lastTool) setColorUI(penColor());
     for (const btn of palette.querySelectorAll("[data-toggle]")) btn.setAttribute("aria-pressed", String(Boolean(setting(btn.dataset.toggle))));
     palette.classList.toggle("active", Boolean(tool));
     const short = tool?.replace(`${MODULE}-`, "");
     for (const el of palette.querySelectorAll("[data-for]")) {
       el.hidden = !el.dataset.for.split(" ").includes(short);
     }
+    showFillColor();
+    if (tool) placePalette();
   }
 
   showLayerBadge(Boolean(tool)); // after the palette is laid out, so the badge can avoid it
@@ -235,10 +295,12 @@ export function attachCanvas() {
   pinch = null;
 }
 
-// Touch: two fingers pan/pinch-zoom the canvas; once a stylus is seen, a single finger no longer draws (palm rejection).
+// Touch: two fingers pan/pinch-zoom the canvas. While a stylus is in use (touching or hovering
+// in the last moment), a single finger doesn't draw: it's most likely the palm resting on the screen.
+const PALM_WINDOW_MS = 1500;
 const touches = new Map(); // pointerId -> [clientX, clientY]
 let pinch = null; // { mid: [x, y], dist }
-let penSeen = false;
+let lastPenAt = -Infinity;
 
 function pinchState() {
   const [a, b] = [...touches.values()];
@@ -273,12 +335,17 @@ function movePinch() {
 
 function onDown(e) {
   const tool = activeTool();
-  if (e.pointerType === "pen") penSeen = true;
+  if (e.pointerType === "pen") lastPenAt = performance.now();
+  // preventDefault below also stops the press from taking focus, so a palette control or chat box
+  // would keep it and swallow the drawing shortcuts (Ctrl+Z, Delete, Escape). The text editor
+  // is left alone: pressing the canvas is how its text gets committed.
+  const focused = document.activeElement;
+  if (tool && focused instanceof HTMLElement && focused !== document.body && focused.id !== "scratchpad-text") focused.blur();
   if (e.pointerType === "touch" && tool && canvas.ready) {
     e.preventDefault();
     touches.set(e.pointerId, [e.clientX, e.clientY]);
     if (touches.size >= 2) return startPinch();
-    if (penSeen) return;
+    if (performance.now() - lastPenAt < PALM_WINDOW_MS) return;
   }
   if (e.button !== 0 || !tool || !canvas.ready) {
     board.dispatchEvent(new PointerEvent("pointerdown", e));
@@ -300,6 +367,7 @@ function onDown(e) {
 }
 
 function onMove(e) {
+  if (e.pointerType === "pen") lastPenAt = performance.now();
   if (touches.has(e.pointerId)) {
     touches.set(e.pointerId, [e.clientX, e.clientY]);
     if (pinch && touches.size >= 2) return movePinch();

@@ -5,26 +5,47 @@ import { cardData } from "./board.js";
 
 const MAX_BAKE_SIZE = 8192;
 
+// v14 keeps the background on the viewed Level; writing scene.background there is silently dropped.
+function bakeTarget() {
+  const scene = canvas.scene;
+  const level = canvas.level ?? null;
+  return {
+    scene,
+    bgDoc: level ?? scene,
+    level: level?.id ?? null,
+    flag: level ? `originalBackgrounds.${level.id}` : "originalBackground"
+  };
+}
+
 export async function openBakeDialog() {
   if (!game.user.isGM || !canvas.ready) return;
-  const options = await foundry.applications.api.DialogV2.prompt({
+  const { scene, flag } = bakeTarget();
+  const canRestore = scene.getFlag(MODULE, flag) !== undefined;
+  const choice = await foundry.applications.api.DialogV2.wait({
     window: { title: t("BakeTitle"), icon: "fa-solid fa-image" },
     content: `<p>${t("BakeHint")}</p>
       <label class="checkbox"><input type="checkbox" name="tiles"> ${t("BakeTiles")}</label>
       <label class="checkbox"><input type="checkbox" name="remove" checked> ${t("BakeRemove")}</label>`,
-    ok: {
-      label: t("Bake"),
-      callback: (event, button) => ({
-        tiles: button.form.elements.tiles.checked,
-        remove: button.form.elements.remove.checked
-      })
-    },
+    buttons: [
+      {
+        action: "bake",
+        label: t("Bake"),
+        icon: "fa-solid fa-image",
+        default: true,
+        callback: (event, button) => ({
+          tiles: button.form.elements.tiles.checked,
+          remove: button.form.elements.remove.checked
+        })
+      },
+      ...(canRestore ? [{ action: "restore", label: t("BakeRestore"), icon: "fa-solid fa-rotate-left" }] : [])
+    ],
     rejectClose: false
   });
-  if (!options) return;
+  if (!choice) return;
 
   try {
-    await bakeScene(options);
+    if (choice === "restore") return await restoreBackground();
+    await bakeScene(choice);
     ui.notifications.info(t("BakeDone"));
   } catch (err) {
     console.error(err);
@@ -32,41 +53,55 @@ export async function openBakeDialog() {
   }
 }
 
+// Puts back the background from before the first bake. Undoable.
+async function restoreBackground() {
+  const { scene, bgDoc, level, flag } = bakeTarget();
+  const original = scene.getFlag(MODULE, flag);
+  if (original === undefined) return;
+  const previous = bgDoc.background.src ?? null;
+  await bgDoc.update({ "background.src": original || null });
+  pushUndo({ scene: scene.id, background: { level, src: previous } });
+}
+
 export async function bakeScene({ tiles = false, remove = true } = {}) {
-  const scene = canvas.scene;
+  const { scene, bgDoc, level, flag } = bakeTarget();
+  // The image only covers the scene rectangle. When baked things are removed, only those wholly
+  // inside it are baked; the rest stay as they are, so nothing ends up both baked and still on the map.
+  const rect = canvas.dimensions.sceneRect;
+  const fits = (b, rotation) => !remove ||
+    (!rotation && b.minX >= rect.left && b.minY >= rect.top && b.maxX <= rect.right && b.maxY <= rect.bottom);
+
   // Only what players can see is baked: no hidden, private, hidden-layer or GM-only-layer drawings.
   // Cards are skipped too: their text and strings live in the DOM overlay, which cannot be baked.
   // `.visible` matches what renderSceneImage draws, so nothing is deleted without being in the image.
   const drawings = scene.drawings.filter(d =>
-    !d.hidden && !d.interface && !d.getFlag(MODULE, "private") && !cardData(d) && visibleToPlayers(d) && d.object?.shape?.visible);
-  const bakedTiles = tiles ? scene.tiles.filter(tile => !tile.hidden && tile.object?.mesh?.visible) : [];
+    !d.hidden && !d.interface && !d.getFlag(MODULE, "private") && !cardData(d) && visibleToPlayers(d) &&
+    d.object?.shape?.visible && fits(docBounds(d), d.rotation));
+  const bakedTiles = tiles ? scene.tiles.filter(tile => !tile.hidden && tile.object?.mesh?.visible &&
+    fits({ minX: tile.x, minY: tile.y, maxX: tile.x + tile.width, maxY: tile.y + tile.height }, tile.rotation)) : [];
 
   const blob = await renderSceneImage(drawings, bakedTiles);
   const path = await upload(blob, `${scene.id}-${Date.now()}.webp`);
 
-  // v14 keeps the background on the viewed Level; writing scene.background there is silently dropped.
-  const bgDoc = canvas.level ?? scene;
   // Keep the very first original so the pre-bake background can always be restored.
-  const flag = canvas.level ? `originalBackgrounds.${canvas.level.id}` : "originalBackground";
-  const original = scene.getFlag(MODULE, flag) ?? bgDoc.background.src ?? "";
+  const previous = bgDoc.background.src ?? null;
+  const original = scene.getFlag(MODULE, flag) ?? previous ?? "";
   await scene.update({ [`flags.${MODULE}.${flag}`]: original });
   await bgDoc.update({ "background.src": path });
   // Never delete drawings unless the baked image really became the background.
   if (bgDoc.background.src !== path) throw new Error("background update was not applied");
 
-  if (!remove) return;
-  // The image only covers the scene rectangle; drawings reaching into the padding stay.
-  const rect = canvas.dimensions.sceneRect;
-  const inScene = drawings.filter(d => {
-    const b = docBounds(d);
-    return !d.rotation && b.minX >= rect.left && b.minY >= rect.top && b.maxX <= rect.right && b.maxY <= rect.bottom;
-  });
-  if (inScene.length) {
-    const deleted = inScene.map(d => d.toObject());
-    await scene.deleteEmbeddedDocuments("Drawing", deleted.map(d => d._id));
-    pushUndo({ scene: scene.id, deleted });
+  // One undo step puts back the old background and everything the bake removed.
+  const undo = { scene: scene.id, background: { level, src: previous } };
+  if (remove && drawings.length) {
+    undo.deleted = drawings.map(d => d.toObject());
+    await scene.deleteEmbeddedDocuments("Drawing", undo.deleted.map(d => d._id));
   }
-  if (bakedTiles.length) await scene.deleteEmbeddedDocuments("Tile", bakedTiles.map(tile => tile.id));
+  if (remove && bakedTiles.length) {
+    undo.tiles = { deleted: bakedTiles.map(tile => tile.toObject()) };
+    await scene.deleteEmbeddedDocuments("Tile", undo.tiles.deleted.map(d => d._id));
+  }
+  pushUndo(undo);
 }
 
 async function renderSceneImage(drawings, tiles) {

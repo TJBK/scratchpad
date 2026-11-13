@@ -72,3 +72,16 @@ export function sanitizeHTML(html) {
 export function safeColor(color, fallback = DEFAULT_SAFE_COLOR) {
   return /^#[0-9a-f]{6}$/i.test(color ?? "") ? color : fallback;
 }
+
+// WCAG relative luminance above the point where black text out-contrasts white. Unparseable counts as dark.
+export function isLightColor(color) {
+  const hex = /^#([0-9a-f]{6})$/i.exec(color ?? "")?.[1];
+  if (!hex) return false;
+  const [r, g, b] = [0, 2, 4].map(i => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.179;
+}
+
+export const textColorOn = background => (isLightColor(background) ? "#222222" : "#f5f5f5");

@@ -16,6 +16,13 @@ let activeStroke = null; // { points, style, scene, id }
 let nextStrokeId = 0;
 let pendingCoordinates = [];
 let flushTimerId = null;
+let drawFrame = 0;
+
+// Redraw at most once per frame: each coalesced pointer event would otherwise redraw the whole stroke.
+function drawPreview() {
+  drawFrame = 0;
+  if (activeStroke) drawLine(view.preview, { ...activeStroke.style, pressure: activeStroke.pressures }, activeStroke.points);
+}
 
 // Map of remote userId -> { graphics: PIXI.Graphics, id: number }
 const remoteStrokes = new Map();
@@ -46,7 +53,7 @@ export default {
     activeStroke.points.push(point);
     activeStroke.pressures?.push(event?.pressure || 0.5);
     // Redraw whole stroke: appending lineTo to already-rendered PIXI v7 geometry leaves stale triangles.
-    drawLine(view.preview, { ...activeStroke.style, pressure: activeStroke.pressures }, activeStroke.points);
+    drawFrame ||= requestAnimationFrame(drawPreview);
 
     pendingCoordinates.push(point[0], point[1]);
     flushTimerId ??= setTimeout(flushPendingCoordinates, SOCKET_FLUSH_INTERVAL_MS);

@@ -1,22 +1,35 @@
 // Uses an inline <textarea> over the canvas so Enter makes real line breaks.
 // Ctrl+Enter or clicking elsewhere commits; Escape cancels.
 
-import { MODULE, setting, penColor, canEdit, inBounds, docBounds, pushUndo } from "../core.js";
+import { MODULE, setting, penColor, canEdit, inBounds, docBounds, pushUndo, t } from "../core.js";
+import { isLightColor } from "../sanitize.js";
 
 const CHAR_WIDTH_RATIO = 0.65;
 const LINE_HEIGHT_RATIO = 1.4;
 
 let editor = null; // { el, at, doc, scene, fontSize, color }
 let measureCtx = null;
+let pressedAt = null; // acted on at release, so the first finger of a pinch-zoom opens nothing
+
+// Light text gets a dark backing so it stays readable while typing.
+const editorBackground = color => (isLightColor(color) ? "rgba(20, 20, 24, 0.8)" : "rgba(255, 255, 255, 0.8)");
 
 export default {
   down(point) {
+    pressedAt = point;
+  },
+  move() {},
+  up() {
+    const point = pressedAt;
+    pressedAt = null;
+    if (!point) return;
     if (editor) return commit();
     const doc = canvas.scene.drawings.find(d => d.text && canEdit(d) && !d.rotation && inBounds(point, docBounds(d)));
     openEditor(doc ? [doc.x, doc.y] : point, doc);
   },
-  move() {},
-  up() {}
+  cancel() {
+    pressedAt = null;
+  }
 };
 
 export const closeEditor = () => commit();
@@ -31,16 +44,21 @@ export function syncEditorTransform() {
   resizeTextarea(el, scaledSize);
 }
 
-export function updateActiveEditor({ color, fontSize, ...textStyle }) {
+// `focus` returns the caret to the text after a click on the palette. Keyboard changes (slider
+// arrows, select arrows) leave focus where it is, or each step would kick the user out of the control.
+export function updateActiveEditor({ color, fontSize, ...textStyle }, { focus = false } = {}) {
   if (!editor) return;
-  if (color) editor.color = editor.el.style.color = color;
+  if (color) {
+    editor.color = editor.el.style.color = color;
+    editor.el.style.background = editorBackground(color);
+  }
   for (const key of ["font", "bold", "italic", "align"]) {
     if (key in textStyle) editor[key] = textStyle[key];
   }
   applyEditorFont(editor.el, editor);
   if (fontSize) editor.fontSize = fontSize;
   syncEditorTransform();
-  editor.el.focus();
+  if (focus) editor.el.focus();
 }
 
 function applyEditorFont(el, { font, bold, italic, align }) {
@@ -68,6 +86,8 @@ function openEditor(at, doc) {
   el.id = "scratchpad-text";
   el.value = doc?.text ?? "";
   el.style.color = color;
+  el.style.background = editorBackground(color);
+  el.setAttribute("aria-label", t("TextTool"));
 
   el.addEventListener("input", () => resizeTextarea(el, (editor?.fontSize ?? fontSize) * canvas.stage.scale.x));
   el.addEventListener("keydown", ev => {
