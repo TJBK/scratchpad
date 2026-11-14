@@ -1,6 +1,6 @@
 // Partial eraser tool that slices circular paths out of existing polyline drawings rather than deleting whole strokes.
-import { MODULE, view, setting, canEdit, isPolygon, shapeFor, docLine, docBounds, inBounds, unrotate, pushUndo } from "../core.js";
-import { bounds, erasePath, distanceToPolyline, nearestValues, shiftMarks, simplify } from "../geometry.js";
+import { MODULE, view, setting, canEdit, isPolygon, shapeFor, docLine, docBounds, hitsLine, inBounds, unrotate, pushUndo } from "../core.js";
+import { bounds, erasePath, nearestValues, shiftMarks, simplify } from "../geometry.js";
 
 const ERASER_COLOR = 0xff5555;
 const MIN_FRAGMENT_SIZE = 0.1;
@@ -81,14 +81,14 @@ export default {
         const line = isPolygon(doc) ? docLine(doc) : null;
         const hit = path.some(raw => {
           const p = unrotate(doc, raw);
-          return line ? distanceToPolyline(p, line) <= hitRadius : inBounds(p, box, radius);
+          return line ? hitsLine(doc, p, hitRadius, line) : inBounds(p, box, radius);
         });
         if (hit) deleted.push(doc.toObject());
         continue;
       }
 
       const line = docLine(doc);
-      if (!path.some(p => distanceToPolyline(p, line) <= hitRadius)) continue;
+      if (!path.some(p => hitsLine(doc, p, hitRadius, line))) continue;
 
       // The line itself is only cut where the eraser covers its whole width. Everywhere else the
       // eraser path is kept as a mark that render.js masks out, so only what was under it vanishes.

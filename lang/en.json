@@ -46,7 +46,7 @@
     "Texture_water": "Water",
     "Texture_grass": "Grass",
     "Shadow": "Drop shadow",
-    "Private": "Private (only you can see new drawings)",
+    "Private": "Private (only you can see new drawings; hidden, not secret)",
     "Font": "Font",
     "Align": "Alignment",
     "Align_left": "Left",
@@ -64,7 +64,7 @@
     "LayerDelete": "Delete layer",
     "LayerDeleteConfirm": "Delete layer \"{name}\"? Its drawings move to \"{target}\".",
     "LayerLastWarn": "A scene needs at least one layer.",
-    "LayerRenameHint": "Click to draw on this layer; double-click to rename",
+    "LayerRenameHint": "Click to draw on this layer; double-click or F2 to rename",
     "LayerMoveSelection": "Move lasso selection to the active layer",
     "LayerBadgeHint": "New drawings go on this layer. Click to manage layers.",
     "Close": "Close",
@@ -75,6 +75,7 @@
     "BakeRemove": "Remove the baked drawings (undo with Ctrl+Z)",
     "BakeDone": "Drawings baked into the scene background.",
     "BakeFailed": "Baking failed:",
+    "BakeRestore": "Restore original background",
     "LineStyle": "Line style",
     "Solid": "Solid",
     "Dashed": "Dashed",
@@ -101,6 +102,13 @@
     "LayerNoneUsable": "Every layer is hidden or locked, so there is nowhere to draw.",
     "Undo": "Undo last sketch action",
     "Redo": "Redo last sketch action",
-    "DeleteSelection": "Delete lasso selection"
+    "DeleteSelection": "Delete lasso selection",
+    "FocusPalette": "Focus the Scratchpad palette (Escape to leave)",
+    "Swatch_Black": "Black",
+    "Swatch_Red": "Red",
+    "Swatch_Blue": "Blue",
+    "Swatch_Green": "Green",
+    "Swatch_Orange": "Orange",
+    "Swatch_White": "White"
   }
 }

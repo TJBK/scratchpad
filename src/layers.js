@@ -137,10 +137,16 @@ export function mountLayersPanel(getSelection) {
   panel.setAttribute("aria-label", t("Layers"));
   document.body.append(panel);
   panel.addEventListener("click", onPanelClick);
-  panel.addEventListener("dblclick", onPanelDoubleClick);
-
-  window.addEventListener("resize", placeOnRight);
-  Hooks.on("collapseSidebar", () => requestAnimationFrame(placeOnRight));
+  panel.addEventListener("keydown", event => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      toggleLayersPanel(false);
+      badge.focus();
+    } else if (event.key === "F2" && game.user.isGM && event.target.matches(".name")) {
+      event.preventDefault();
+      startRename(event.target);
+    }
+  });
 }
 
 // Shown only while a Scratchpad tool is active; the panel closes with it.
@@ -157,7 +163,8 @@ export function toggleLayersPanel(force) {
   renderLayersPanel();
 }
 
-function placeOnRight() {
+// Called by ui.js after it places the palette, which the badge must avoid.
+export function placeOnRight() {
   const sidebar = document.getElementById("sidebar");
   const left = sidebar?.getBoundingClientRect().left || window.innerWidth;
   const right = `${Math.max(16, window.innerWidth - left + 12)}px`;
@@ -184,17 +191,22 @@ function renderBadge() {
 }
 
 const esc = s => foundry.utils.escapeHTML(String(s));
-const iconButton = (act, icon, label, pressed) =>
-  `<button type="button" data-act="${act}" data-tooltip="${label}" aria-label="${label}"${pressed === undefined ? "" : ` aria-pressed="${pressed}"`}><i class="fa-solid ${icon}"></i></button>`;
+const iconButton = (act, icon, label, { pressed, disabled } = {}) =>
+  `<button type="button" data-act="${act}" data-tooltip="${label}" aria-label="${label}"` +
+  `${pressed === undefined ? "" : ` aria-pressed="${pressed}"`}${disabled ? " disabled" : ""}>` +
+  `<i class="fa-solid ${icon}" aria-hidden="true"></i></button>`;
+
+let lastPanelHTML = "";
 
 export function renderLayersPanel() {
   renderBadge();
   if (!panel || panel.hidden || !canvas.scene) return;
   const gm = game.user.isGM;
+  const layers = getLayers();
   const active = activeLayer();
-  const rows = getLayers().map((l, i) => ({ ...l, i })).reverse().filter(l => gm || !hiddenForMe(l));
+  const rows = layers.map((l, i) => ({ ...l, i })).reverse().filter(l => gm || !hiddenForMe(l));
 
-  panel.innerHTML = `
+  const html = `
     <header><strong>${t("Layers")}</strong>
       ${gm ? iconButton("add", "fa-plus", t("LayerAdd")) : ""}
       ${iconButton("close", "fa-xmark", t("Close"))}</header>
@@ -203,15 +215,28 @@ export function renderLayersPanel() {
         <button type="button" class="name" data-act="select" aria-pressed="${l.id === active}"
           ${gm ? `data-tooltip="${t("LayerRenameHint")}"` : ""}>${esc(l.name)}</button>
         ${gm ? `
-          ${iconButton("hidden", l.hidden ? "fa-eye-slash" : "fa-eye", t("LayerHide"), Boolean(l.hidden))}
-          ${iconButton("gmOnly", "fa-user-secret", t("LayerGmOnly"), Boolean(l.gmOnly))}
-          ${iconButton("locked", l.locked ? "fa-lock" : "fa-lock-open", t("LayerLock"), Boolean(l.locked))}
-          ${iconButton("up", "fa-arrow-up", t("LayerUp"))}
-          ${iconButton("down", "fa-arrow-down", t("LayerDown"))}
-          ${iconButton("delete", "fa-trash", t("LayerDelete"))}` : ""}
+          ${iconButton("hidden", l.hidden ? "fa-eye-slash" : "fa-eye", t("LayerHide"), { pressed: Boolean(l.hidden) })}
+          ${iconButton("gmOnly", "fa-user-secret", t("LayerGmOnly"), { pressed: Boolean(l.gmOnly) })}
+          ${iconButton("locked", l.locked ? "fa-lock" : "fa-lock-open", t("LayerLock"), { pressed: Boolean(l.locked) })}
+          ${iconButton("up", "fa-arrow-up", t("LayerUp"), { disabled: l.i === layers.length - 1 })}
+          ${iconButton("down", "fa-arrow-down", t("LayerDown"), { disabled: l.i === 0 })}
+          ${iconButton("delete", "fa-trash", t("LayerDelete"), { disabled: layers.length < 2 })}` : ""}
       </li>`).join("")}
     </ol>
-    <footer>${iconButton("move", "fa-right-to-bracket", t("LayerMoveSelection"))} <span>${t("LayerMoveSelection")}</span></footer>`;
+    <footer>${iconButton("move", "fa-right-to-bracket", t("LayerMoveSelection"), { disabled: !moveSelection?.().length })}
+      <span>${t("LayerMoveSelection")}</span></footer>`;
+
+  // An unchanged panel is left alone: rebuilding it drops keyboard focus and swallows double-clicks.
+  if (html === lastPanelHTML && panel.childElementCount) return;
+  const focused = panel.contains(document.activeElement) ? document.activeElement : null;
+  const focusRow = focused?.closest("[data-id]")?.dataset.id;
+  const focusAct = focused?.dataset.act;
+  panel.innerHTML = lastPanelHTML = html;
+
+  // Put focus back on the same control (it follows its layer when the layer moves).
+  if (!focusAct) return;
+  const scope = focusRow ? panel.querySelector(`li[data-id="${CSS.escape(focusRow)}"]`) ?? panel : panel;
+  (scope.querySelector(`[data-act="${focusAct}"]:not(:disabled)`) ?? scope.querySelector(".name") ?? panel.querySelector("[data-act]"))?.focus();
 }
 
 async function onPanelClick(event) {
@@ -231,6 +256,8 @@ async function onPanelClick(event) {
   const id = btn.closest("[data-id]")?.dataset.id;
   const i = layers.findIndex(l => l.id === id);
   if (i < 0) return;
+  // The second click of a double-click renames (a dblclick event can miss when the first click re-rendered the row).
+  if (act === "select" && event.detail === 2 && game.user.isGM) return startRename(btn);
   if (act === "select") return setActiveLayer(id);
   if (!game.user.isGM) return;
 
@@ -258,9 +285,8 @@ async function onPanelClick(event) {
   }
 }
 
-function onPanelDoubleClick(event) {
-  const nameBtn = event.target.closest(".name");
-  if (!nameBtn || !game.user.isGM) return;
+// GM only: swaps a layer's name button for a text box. Enter or leaving it saves, Escape cancels.
+function startRename(nameBtn) {
   const id = nameBtn.closest("[data-id]").dataset.id;
   const input = document.createElement("input");
   input.type = "text";
@@ -275,11 +301,17 @@ function onPanelDoubleClick(event) {
     if (done) return;
     done = true;
     const name = input.value.trim();
-    if (!save || !name) return renderLayersPanel();
-    const layers = foundry.utils.deepClone(getLayers());
-    const layer = layers.find(l => l.id === id);
-    if (layer) layer.name = name.slice(0, 60);
-    await saveLayers(layers);
+    if (save && name) {
+      const layers = foundry.utils.deepClone(getLayers());
+      const layer = layers.find(l => l.id === id);
+      if (layer) layer.name = name.slice(0, 60);
+      await saveLayers(layers);
+    }
+    lastPanelHTML = ""; // the text box replaced a button, so the panel must be rebuilt
+    renderLayersPanel();
+    if (input.isConnected || document.activeElement === document.body) {
+      panel.querySelector(`li[data-id="${CSS.escape(id)}"] .name`)?.focus();
+    }
   };
   input.addEventListener("keydown", e => {
     e.stopPropagation();

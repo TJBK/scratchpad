@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { serializeSafe, safeColor } from "../src/sanitize.js";
+import { serializeSafe, safeColor, isLightColor, textColorOn } from "../src/sanitize.js";
 
 const text = v => ({ nodeType: 3, nodeValue: v });
 const el = (tagName, ...childNodes) => ({ nodeType: 1, tagName, childNodes });
@@ -45,4 +45,14 @@ test("safeColor only allows #rrggbb", () => {
   assert.equal(safeColor("#AbCdEf"), "#AbCdEf");
   assert.equal(safeColor('red" onload="x'), "#c92a2a");
   assert.equal(safeColor(undefined), "#c92a2a");
+});
+
+test("isLightColor and textColorOn pick readable text for a background", () => {
+  assert.equal(isLightColor("#ffffff"), true);
+  assert.equal(isLightColor("#fff8dc"), true);
+  assert.equal(isLightColor("#000000"), false);
+  assert.equal(isLightColor("#1971c2"), false);
+  assert.equal(isLightColor("not a colour"), false);
+  assert.equal(textColorOn("#fff8dc"), "#222222");
+  assert.equal(textColorOn("#3a1f5c"), "#f5f5f5");
 });

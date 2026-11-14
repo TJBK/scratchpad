@@ -280,13 +280,17 @@ export function rectShape(a, b) {
   return [[a[0], a[1]], [b[0], a[1]], [b[0], b[1]], [a[0], b[1]], [a[0], a[1]]];
 }
 
+// Closed shapes end on their exact first point: fills are only kept for exactly closed lines,
+// and cos/sin of 2π would land a rounding error away.
+const closeLoop = pts => [...pts, pts[0]];
+
 export function ellipseShape(a, b, segments = 36) {
   const cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2;
   const rx = Math.abs(b[0] - a[0]) / 2, ry = Math.abs(b[1] - a[1]) / 2;
-  return Array.from({ length: segments + 1 }, (_, i) => {
+  return closeLoop(Array.from({ length: segments }, (_, i) => {
     const angle = (i / segments) * Math.PI * 2;
     return [cx + Math.cos(angle) * rx, cy + Math.sin(angle) * ry];
-  });
+  }));
 }
 
 // Evenly spaced points along a polyline as [x, y, value]; value is linearly interpolated from `values` (default 1).
@@ -329,11 +333,11 @@ export function polyShape(a, b, sides, inner = 1) {
   const cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2;
   const rx = Math.abs(b[0] - a[0]) / 2, ry = Math.abs(b[1] - a[1]) / 2;
   const count = inner < 1 ? sides * 2 : sides;
-  return Array.from({ length: count + 1 }, (_, i) => {
+  return closeLoop(Array.from({ length: count }, (_, i) => {
     const angle = -Math.PI / 2 + (i / count) * Math.PI * 2;
     const r = inner < 1 && i % 2 ? inner : 1;
     return [cx + Math.cos(angle) * rx * r, cy + Math.sin(angle) * ry * r];
-  });
+  }));
 }
 
 export function arrowShape(start, tip, headLength) {

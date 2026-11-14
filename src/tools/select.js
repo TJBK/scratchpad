@@ -1,9 +1,10 @@
 // Click or lasso to select (Shift toggles), drag inside the box to move, Delete/Backspace to remove.
 // Palette color/style/width changes apply to the selection.
 
-import { MODULE, TOOL, view, activeTool, canEdit, isPolygon, inBounds, docLine, docBounds, unrotate, pushUndo } from "../core.js";
-import { distanceToPolyline, polylineHitsPolygon, rectShape } from "../geometry.js";
+import { MODULE, TOOL, view, activeTool, canEdit, isPolygon, inBounds, docLine, docBounds, hitsLine, unrotate, pushUndo } from "../core.js";
+import { pointInPolygon, polylineHitsPolygon, rectShape } from "../geometry.js";
 import { cardData } from "../board.js";
+import { renderLayersPanel } from "../layers.js";
 
 const PAD = 6;
 const SELECT_COLOR = 0x3399ff;
@@ -64,6 +65,15 @@ function drawOverlay() {
     }
   }
 
+  // With several drawings selected, box each one so it's clear which are in the selection.
+  if (docs.length > 1) {
+    g.lineStyle(1 * invScale, SELECT_COLOR, 0.7);
+    for (const doc of docs) {
+      const b = docBounds(doc);
+      g.drawRect(b.minX + dx, b.minY + dy, b.maxX - b.minX, b.maxY - b.minY);
+    }
+  }
+
   g.lineStyle(2 * invScale, SELECT_COLOR, 0.9)
     .beginFill(SELECT_COLOR, 0.06)
     .drawRect(box.minX + dx, box.minY + dy, box.maxX - box.minX, box.maxY - box.minY)
@@ -79,7 +89,7 @@ function findDrawingAt(point) {
   return candidates.find(doc => {
     const p = unrotate(doc, point);
     return isPolygon(doc)
-      ? distanceToPolyline(p, docLine(doc)) <= hitPad + (doc.strokeWidth || 2) / 2
+      ? hitsLine(doc, p, hitPad + (doc.strokeWidth || 2) / 2)
       : inBounds(p, docBounds(doc), hitPad);
   });
 }
@@ -100,10 +110,14 @@ function updateSelectionFromLasso(path, shiftKey = false) {
   for (const doc of canvas.scene.drawings) {
     if (!canEdit(doc)) continue;
     const lasso = doc.rotation ? path.map(p => unrotate(doc, p)) : path;
-    const hit = polylineHitsPolygon(docOutline(doc), lasso) || (!isPolygon(doc) && inBounds(lasso[0], docBounds(doc)));
+    const outline = docOutline(doc);
+    // A lasso drawn wholly inside a filled shape (or a text/card box) still selects it.
+    const hit = polylineHitsPolygon(outline, lasso) || ((!isPolygon(doc) || doc.fillType) && pointInPolygon(lasso[0], outline));
     if (hit) selection.ids.add(doc.id);
   }
 }
+
+const overlayClass = (name, on) => document.getElementById("scratchpad-overlay")?.classList.toggle(name, on);
 
 export default {
   down(point, event) {
@@ -127,6 +141,12 @@ export default {
     drawOverlay();
   },
 
+  // Move cursor where a press would drag the selection rather than start a new lasso.
+  hover(point, event) {
+    const box = selectionBounds();
+    overlayClass("move", Boolean(!event?.shiftKey && box && inBounds(point, box)));
+  },
+
   async up() {
     if (!drag) return;
     const current = drag;
@@ -134,6 +154,7 @@ export default {
 
     if (current.mode === "lasso") {
       updateSelectionFromLasso(current.path, current.shiftKey);
+      renderLayersPanel();
       return drawOverlay();
     }
 
@@ -155,13 +176,17 @@ export default {
 };
 
 export function refreshSelection() {
-  if (activeTool() === TOOL.SELECT && !drag) drawOverlay();
+  if (activeTool() !== TOOL.SELECT || drag) return;
+  drawOverlay();
+  renderLayersPanel(); // the selection may have lost drawings
 }
 
 export function clearSelection() {
+  overlayClass("move", false);
   if (!selection.ids.size) return;
   selection.ids.clear();
   view.preview?.clear();
+  renderLayersPanel();
 }
 
 export function deleteSelected() {
@@ -172,6 +197,7 @@ export function deleteSelected() {
   const deleted = docs.map(d => d.toObject());
   selection.ids.clear();
   drawOverlay();
+  renderLayersPanel();
 
   scene.deleteEmbeddedDocuments("Drawing", deleted.map(d => d._id))
     .then(() => pushUndo({ scene: scene.id, deleted }));

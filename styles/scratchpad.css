@@ -1,3 +1,13 @@
+/* Hit area for every palette and layer control: 28px with a mouse, 40px on touch screens. */
+:root {
+  --scratchpad-target: 28px;
+}
+@media (pointer: coarse) {
+  :root {
+    --scratchpad-target: 40px;
+  }
+}
+
 #scratchpad-overlay {
   position: fixed;
   inset: 0;
@@ -13,6 +23,9 @@
 }
 #scratchpad-overlay.active.text {
   cursor: text;
+}
+#scratchpad-overlay.active.move {
+  cursor: move;
 }
 
 #scratchpad-text {
@@ -30,7 +43,7 @@
 }
 #scratchpad-palette select {
   width: auto;
-  height: 24px;
+  height: var(--scratchpad-target);
 }
 #scratchpad-palette [hidden] {
   display: none !important;
@@ -135,8 +148,8 @@
   width: 80px;
 }
 #scratchpad-palette .toggle {
-  width: 26px;
-  height: 24px;
+  width: var(--scratchpad-target);
+  height: var(--scratchpad-target);
   min-height: 0;
   padding: 0;
   line-height: 1;
@@ -159,8 +172,8 @@
   gap: 4px;
 }
 #scratchpad-palette .swatches button {
-  width: 22px;
-  height: 22px;
+  width: var(--scratchpad-target);
+  height: var(--scratchpad-target);
   min-height: 0;
   padding: 0;
   border: 2px solid #666;
@@ -171,12 +184,15 @@
 #scratchpad-palette .swatches button:hover {
   border-color: #aaa;
 }
+/* A blue ring outside a dark border shows on every swatch, white and black included. */
 #scratchpad-palette .swatches button.active {
-  border-color: #fff;
+  border-color: #14141a;
+  box-shadow: 0 0 0 2px #6fa3d8;
   transform: scale(1.12);
 }
 #scratchpad-palette .swatches button:focus-visible {
   outline: 2px solid #fff;
+  outline-offset: 3px;
 }
 @media (prefers-reduced-motion: reduce) {
   #scratchpad-palette .swatches button,
@@ -185,8 +201,8 @@
   }
 }
 #scratchpad-palette input[type="color"] {
-  width: 28px;
-  height: 24px;
+  width: var(--scratchpad-target);
+  height: var(--scratchpad-target);
   padding: 0;
   border: none;
   cursor: pointer;
@@ -197,9 +213,16 @@
   gap: 4px;
   white-space: nowrap;
 }
+#scratchpad-palette label.colour {
+  gap: 3px;
+  color: #bbb;
+}
+#scratchpad-palette input[type="color"]:focus-visible {
+  outline: 2px solid #fff;
+}
 #scratchpad-palette input[type="number"] {
   width: 5ch;
-  height: 22px;
+  height: var(--scratchpad-target);
   padding: 0 4px;
   border: 1px solid #555;
   border-radius: 4px;
@@ -225,7 +248,7 @@
   gap: 6px;
   width: auto;
   max-width: 260px;
-  height: 32px;
+  height: max(32px, var(--scratchpad-target));
   padding: 0 10px;
   border: 1px solid #6fa3d8;
   border-radius: 6px;
@@ -251,7 +274,9 @@
   top: 52px;
   right: 316px;
   z-index: 100;
-  width: 280px;
+  /* Room for a GM's six row buttons plus a readable layer name, at either target size. */
+  width: calc(var(--scratchpad-target) * 6 + 140px);
+  max-width: calc(100vw - 32px);
   max-height: 60vh;
   overflow: auto;
   padding: 8px;
@@ -289,8 +314,8 @@
   background: rgba(58, 110, 165, 0.45);
 }
 #scratchpad-layers button {
-  width: 24px;
-  height: 24px;
+  width: var(--scratchpad-target);
+  height: var(--scratchpad-target);
   min-height: 0;
   padding: 0;
   flex: none;
@@ -300,6 +325,10 @@
   color: #ccc;
   line-height: 1;
   cursor: pointer;
+}
+#scratchpad-layers button:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 #scratchpad-layers button[aria-pressed="true"]:not(.name) {
   background: #3a6ea5;
@@ -311,7 +340,7 @@
   flex: 1;
   width: auto;
   min-width: 0;
-  height: 24px;
+  height: var(--scratchpad-target);
   overflow: hidden;
   text-align: left;
   text-overflow: ellipsis;

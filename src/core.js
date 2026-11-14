@@ -1,5 +1,5 @@
 // Shared constants, state, and document/graphics helpers used across all Scratchpad tools.
-import { bounds, dashSegments, getDashPattern, resample, rotateAbout } from "./geometry.js";
+import { bounds, dashSegments, distanceToPolyline, getDashPattern, pointInPolygon, resample, rotateAbout } from "./geometry.js";
 import { brushTexture } from "./textures.js";
 import { layerBlocksEdit } from "./layers.js";
 
@@ -133,6 +133,11 @@ export function docLine(doc, offsetX = doc.x, offsetY = doc.y) {
   return out;
 }
 
+// A point (in the drawing's unrotated frame) within `reach` of its line, or anywhere inside its fill.
+export function hitsLine(doc, point, reach, line = docLine(doc)) {
+  return distanceToPolyline(point, line) <= reach || (Boolean(doc.fillType) && pointInPolygon(point, line));
+}
+
 
 const BRUSH_CAPS = { round: ["round", "round"], square: ["square", "miter"], flat: ["butt", "bevel"] };
 const SHADOW_COLOR = "#000000";
@@ -222,23 +227,23 @@ const undoStack = [];
 const redoStack = [];
 let historyQueue = Promise.resolve();
 
-export function pushUndo({ scene, created = [], deleted = [], updated = [] }) {
-  undoStack.push({ scene, created, deleted, updated });
+// `tiles` ({ created, deleted }) and `background` ({ level, src }) are only used by bakes.
+export function pushUndo({ scene, created = [], deleted = [], updated = [], tiles, background }) {
+  undoStack.push({ scene, created, deleted, updated, tiles, background });
   if (undoStack.length > UNDO_LIMIT) undoStack.shift();
-  redoStack.length = 0;
+  // A new action only invalidates redo on its own scene.
+  for (let i = redoStack.length - 1; i >= 0; i--) if (redoStack[i].scene === scene) redoStack.splice(i, 1);
 }
 
-async function applyHistory(op, reverseStack) {
-  const scene = game.scenes.get(op.scene);
-  if (!scene) return;
-
-  const createdDocs = op.created.map(id => scene.drawings.get(id)?.toObject()).filter(Boolean);
-  const toRestore = op.deleted.filter(d => !scene.drawings.has(d._id));
+async function applyDocs(scene, type, { created = [], deleted = [], updated = [] }) {
+  const collection = scene.getEmbeddedCollection(type);
+  const createdDocs = created.map(id => collection.get(id)?.toObject()).filter(Boolean);
+  const toRestore = deleted.filter(d => !collection.has(d._id));
   const toUpdate = [];
   const prevUpdates = [];
 
-  for (const change of op.updated) {
-    const doc = scene.drawings.get(change._id);
+  for (const change of updated) {
+    const doc = collection.get(change._id);
     if (!doc) continue;
     toUpdate.push(change);
     const prev = { _id: doc.id };
@@ -248,16 +253,30 @@ async function applyHistory(op, reverseStack) {
     prevUpdates.push(prev);
   }
 
-  if (createdDocs.length) await scene.deleteEmbeddedDocuments("Drawing", createdDocs.map(d => d._id));
-  if (toRestore.length) await scene.createEmbeddedDocuments("Drawing", toRestore, { keepId: true });
-  if (toUpdate.length) await scene.updateEmbeddedDocuments("Drawing", toUpdate);
+  if (createdDocs.length) await scene.deleteEmbeddedDocuments(type, createdDocs.map(d => d._id));
+  if (toRestore.length) await scene.createEmbeddedDocuments(type, toRestore, { keepId: true });
+  if (toUpdate.length) await scene.updateEmbeddedDocuments(type, toUpdate);
+  return { created: toRestore.map(d => d._id), deleted: createdDocs, updated: prevUpdates };
+}
 
-  reverseStack.push({
-    scene: op.scene,
-    created: toRestore.map(d => d._id),
-    deleted: createdDocs,
-    updated: prevUpdates
-  });
+// v14 keeps the background on a Level, v13 on the Scene.
+async function swapBackground(scene, { level, src }) {
+  const doc = level ? scene.levels?.get(level) : scene;
+  if (!doc) return undefined;
+  const prev = doc.background.src ?? null;
+  await doc.update({ "background.src": src || null });
+  return { level, src: prev };
+}
+
+async function applyHistory(op, reverseStack) {
+  const scene = game.scenes.get(op.scene);
+  if (!scene) return;
+
+  const reverse = { scene: op.scene, ...(await applyDocs(scene, "Drawing", op)) };
+  if (op.tiles) reverse.tiles = await applyDocs(scene, "Tile", op.tiles);
+  if (op.background) reverse.background = await swapBackground(scene, op.background);
+
+  reverseStack.push(reverse);
   if (reverseStack.length > UNDO_LIMIT) reverseStack.shift();
 }
 
@@ -270,15 +289,21 @@ const enqueue = (op, reverseStack) => {
   });
 };
 
+// Undo and redo act on the viewed scene only, never on a scene the user can't see.
+function takeForScene(stack) {
+  const i = stack.findLastIndex(op => op.scene === canvas.scene?.id);
+  return i < 0 ? null : stack.splice(i, 1)[0];
+}
+
 export function undo() {
-  const op = undoStack.pop();
+  const op = takeForScene(undoStack);
   if (!op) return false;
   enqueue(op, redoStack);
   return true;
 }
 
 export function redo() {
-  const op = redoStack.pop();
+  const op = takeForScene(redoStack);
   if (!op) return false;
   enqueue(op, undoStack);
   return true;

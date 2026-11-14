@@ -12,6 +12,7 @@ const REGULAR = { triangle: [3], diamond: [4], pentagon: [5], hexagon: [6], star
 
 let activeShape = null; // { start, end, shiftKey, kind, style, scene }
 let polygon = null; // { points, cursor, style, scene, lastDown }
+let pendingCorner = null; // { point, shiftKey }: a polygon click is placed on release, so a pinch can still call it off
 
 function buildShapePolyline({ start, end, shiftKey, kind, style }) {
   if (kind === "rect" || kind === "ellipse" || REGULAR[kind]) {
@@ -85,13 +86,16 @@ export function cancelPolygon() {
 export default {
   down(point, event) {
     const kind = setting("shape");
-    if (kind === "polygon") return polygonDown(point, event);
+    if (kind === "polygon") {
+      pendingCorner = { point, shiftKey: event.shiftKey };
+      return;
+    }
     cancelPolygon();
     activeShape = { start: point, end: point, shiftKey: event.shiftKey, kind, style: penStyle(), scene: canvas.scene };
   },
 
   move(point, event) {
-    if (polygon) return this.hover(point, event);
+    if (polygon || pendingCorner) return this.hover(point, event);
     if (!activeShape) return;
 
     activeShape.end = point;
@@ -106,6 +110,11 @@ export default {
   },
 
   async up() {
+    if (pendingCorner) {
+      const { point, shiftKey } = pendingCorner;
+      pendingCorner = null;
+      return polygonDown(point, { shiftKey });
+    }
     if (!activeShape) return;
 
     const completedShape = activeShape;
@@ -122,9 +131,11 @@ export default {
     await createShape(buildShapePolyline(completedShape), completedShape.style, completedShape.scene);
   },
 
+  // Drops the press in progress but keeps a polygon's placed corners (a pinch-zoom mid-polygon).
   cancel() {
     activeShape = null;
-    cancelPolygon();
-    view.preview?.clear();
+    pendingCorner = null;
+    if (polygon) drawPolygonPreview();
+    else view.preview?.clear();
   }
 };

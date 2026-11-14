@@ -1,7 +1,7 @@
 // Registers Scratchpad settings, keybindings, scene controls, and document/canvas hooks.
 
-import { MODULE, TOOL, activeTool, undo, redo } from "./core.js";
-import { mountUI, syncUI, attachCanvas } from "./ui.js";
+import { MODULE, TOOL, activeTool, undo, redo, t } from "./core.js";
+import { mountUI, syncUI, attachCanvas, focusPalette } from "./ui.js";
 import { onSocket } from "./tools/pen.js";
 import { refreshSelection, deleteSelected, selectedDrawings } from "./tools/select.js";
 import { registerLayerHooks, mountLayersPanel } from "./layers.js";
@@ -47,12 +47,19 @@ Hooks.once("init", () => {
   registerLayerHooks();
 
   const priorityPrecedence = CONST.KEYBINDING_PRECEDENCE.PRIORITY;
+  // Always consumed while a Scratchpad tool is active: core's own drawing history also records
+  // Scratchpad's edits, so letting an empty undo fall through would bring back what was just undone.
+  const ownKey = action => () => {
+    if (!activeTool()) return false;
+    action();
+    return true;
+  };
 
   game.keybindings.register(MODULE, "undo", {
     name: "SCRATCHPAD.Undo",
     editable: [{ key: "KeyZ", modifiers: ["Control"] }],
     precedence: priorityPrecedence,
-    onDown: () => (activeTool() ? undo() : false)
+    onDown: ownKey(undo)
   });
 
   game.keybindings.register(MODULE, "redo", {
@@ -62,7 +69,13 @@ Hooks.once("init", () => {
       { key: "KeyZ", modifiers: ["Control", "Shift"] }
     ],
     precedence: priorityPrecedence,
-    onDown: () => (activeTool() ? redo() : false)
+    onDown: ownKey(redo)
+  });
+
+  game.keybindings.register(MODULE, "focusPalette", {
+    name: "SCRATCHPAD.FocusPalette",
+    editable: [{ key: "KeyP", modifiers: ["Alt"] }],
+    onDown: () => Boolean(activeTool()) && focusPalette()
   });
 
   game.keybindings.register(MODULE, "cancelPolygon", {
@@ -162,8 +175,19 @@ Hooks.on("getSceneControlButtons", controls => {
 });
 
 async function createWhiteboardScene() {
+  const fallback = t("WhiteboardName");
+  // Asking for the name doubles as a confirmation, so one stray click doesn't add a scene.
+  const name = await foundry.applications.api.DialogV2.prompt({
+    window: { title: t("Whiteboard"), icon: "fa-solid fa-chalkboard" },
+    content: `<div class="form-group"><label for="scratchpad-whiteboard-name">${game.i18n.localize("Name")}</label>
+      <input id="scratchpad-whiteboard-name" type="text" name="name" value="${foundry.utils.escapeHTML(fallback)}" autofocus></div>`,
+    ok: { callback: (event, button) => button.form.elements.name.value.trim() || fallback },
+    rejectClose: false
+  });
+  if (!name) return;
+
   const scene = await Scene.create({
-    name: game.i18n.localize("SCRATCHPAD.WhiteboardName"),
+    name,
     width: 4000,
     height: 3000,
     padding: 0.1,
