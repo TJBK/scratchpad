@@ -63,6 +63,16 @@ async function restoreBackground() {
   pushUndo({ scene: scene.id, background: { level, src: previous } });
 }
 
+// The shape box plus what is painted outside it: half the stroke, the soft-edge blur (screen pixels,
+// so converted to world units) and the shadow offset (core.js drawLine).
+function inkBounds(d) {
+  const b = docBounds(d);
+  const w = d.strokeWidth ?? 0;
+  const blur = (d.object?.shape?.filters?.[0]?.blur ?? 0) / (canvas.stage?.scale.x || 1);
+  const pad = w / 2 + blur + (d.getFlag(MODULE, "shadow") ? Math.max(8, w) : 0);
+  return { minX: b.minX - pad, minY: b.minY - pad, maxX: b.maxX + pad, maxY: b.maxY + pad };
+}
+
 export async function bakeScene({ tiles = false, remove = true } = {}) {
   const { scene, bgDoc, level, flag } = bakeTarget();
   // The image only covers the scene rectangle. When baked things are removed, only those wholly
@@ -76,7 +86,7 @@ export async function bakeScene({ tiles = false, remove = true } = {}) {
   // `.visible` matches what renderSceneImage draws, so nothing is deleted without being in the image.
   const drawings = scene.drawings.filter(d =>
     !d.hidden && !d.interface && !d.getFlag(MODULE, "private") && !cardData(d) && visibleToPlayers(d) &&
-    d.object?.shape?.visible && fits(docBounds(d), d.rotation));
+    d.object?.shape?.visible && fits(inkBounds(d), d.rotation));
   const bakedTiles = tiles ? scene.tiles.filter(tile => !tile.hidden && tile.object?.mesh?.visible &&
     fits({ minX: tile.x, minY: tile.y, maxX: tile.x + tile.width, maxY: tile.y + tile.height }, tile.rotation)) : [];
 
