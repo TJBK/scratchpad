@@ -257,7 +257,11 @@ async function applyDocs(scene, type, { created = [], deleted = [], updated = []
   }
 
   // Restore before removing: if a later request fails, both versions remain instead of neither.
-  if (toRestore.length) await scene.createEmbeddedDocuments(type, toRestore, { keepId: true });
+  if (toRestore.length) {
+    // A preCreate hook can veto a document without rejecting the request.
+    const restored = await scene.createEmbeddedDocuments(type, toRestore, { keepId: true });
+    if (restored.length < toRestore.length) throw new Error(`Scratchpad: ${type} restore was refused`);
+  }
   if (createdDocs.length) await scene.deleteEmbeddedDocuments(type, createdDocs.map(d => d._id));
   if (toUpdate.length) await scene.updateEmbeddedDocuments(type, toUpdate);
   return { created: toRestore.map(d => d._id), deleted: createdDocs, updated: prevUpdates };
@@ -266,9 +270,10 @@ async function applyDocs(scene, type, { created = [], deleted = [], updated = []
 // v14 keeps the background on a Level, v13 on the Scene.
 async function swapBackground(scene, { level, src }) {
   const doc = level ? scene.levels?.get(level) : scene;
-  if (!doc) return undefined;
+  if (!doc) throw new Error("Scratchpad: background target is gone");
   const prev = doc.background.src ?? null;
   await doc.update({ "background.src": src || null });
+  if ((doc.background.src ?? null) !== (src || null)) throw new Error("Scratchpad: background update was not applied");
   return { level, src: prev };
 }
 
@@ -281,13 +286,19 @@ async function applyHistory(op, reverseStack, generation) {
     const doc = scene.drawings.get(id);
     return doc && (doc.locked || layerBlocksEdit(doc));
   };
-  if (!op.background && [...op.created, ...op.updated.map(u => u._id)].some(locked)) {
+  // Restored snapshots are checked against the layer they would come back on.
+  const lockedSnapshot = snap => snap.locked ||
+    layerBlocksEdit({ parent: scene, getFlag: (scope, key) => snap.flags?.[scope]?.[key] });
+  if (!op.background && ([...op.created, ...op.updated.map(u => u._id)].some(locked) || op.deleted.some(lockedSnapshot))) {
     throw new Error("Scratchpad: a drawing in this step is locked");
   }
 
-  const reverse ={ scene: op.scene, ...(await applyDocs(scene, "Drawing", op)) };
+  // Bake redo only removes documents: put the baked image back first so a failed swap removes nothing.
+  const backgroundFirst = op.background && !op.deleted.length && !op.tiles?.deleted?.length;
+  const background = backgroundFirst ? await swapBackground(scene, op.background) : undefined;
+  const reverse = { scene: op.scene, ...(await applyDocs(scene, "Drawing", op)) };
   if (op.tiles) reverse.tiles = await applyDocs(scene, "Tile", op.tiles);
-  if (op.background) reverse.background = await swapBackground(scene, op.background);
+  if (op.background) reverse.background = backgroundFirst ? background : await swapBackground(scene, op.background);
 
   // A new action may invalidate this undo's redo branch while its document requests are pending.
   if (reverseStack === redoStack && historyGeneration.get(op.scene) !== generation) return;

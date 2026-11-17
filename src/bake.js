@@ -138,8 +138,8 @@ export async function bakeScene({ tiles = false, remove = true } = {}) {
       (drawingsAttempted ? undo.deleted.filter(d => !scene.drawings.has(d._id)) : []);
     undo.tiles.deleted = removedTiles?.map(d => d.toObject()) ??
       (tilesAttempted ? undo.tiles.deleted.filter(d => !scene.tiles.has(d._id)) : []);
-    // If the background update failed, restoring its previous source is harmless too.
-    pushUndo(undo);
+    // A refused background update with nothing removed changed nothing: an empty step would only clear redo.
+    if (bgDoc.background.src === path || undo.deleted.length || undo.tiles.deleted.length) pushUndo(undo);
   }
 }
 

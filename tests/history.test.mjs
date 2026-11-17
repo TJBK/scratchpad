@@ -37,7 +37,7 @@ function makeScene(id) {
       return removed;
     },
     async createEmbeddedDocuments(type, data) {
-      for (const source of data) addDoc(this, type, source);
+      return data.map(source => addDoc(this, type, source));
     }
   };
   scenes.set(id, scene);
@@ -266,7 +266,8 @@ for (const applied of [false, true]) {
     };
     await assert.rejects(bakeScene(), /background failed/);
     assert.equal(scene.drawings.has("drawing"), true);
-    assert.equal(undo(), true);
+    // Nothing changed when unapplied, so there is nothing to undo.
+    assert.equal(undo(), applied);
     await flushHistory();
     assert.equal(scene.background.src, "original.webp");
     assert.equal(scene.drawings.has("drawing"), true);
@@ -326,6 +327,50 @@ test("a failed restore during undo leaves the replacement pieces in place", asyn
   scene.createEmbeddedDocuments = async () => { throw new Error("rejected"); };
   await expectUndoFailed(() => undo());
   assert.equal(scene.drawings.has("piece"), true);
+});
+
+test("undo refuses to restore a drawing onto a layer locked meanwhile", async () => {
+  const scene = makeScene("restore-locked");
+  scene.getFlag = (_m, key) => (key === "layers" ? [{ id: "base", name: "Base", locked: true }] : undefined);
+  pushUndo({ scene: scene.id, deleted: [{ _id: "gone" }] });
+  await expectUndoFailed(() => undo());
+  assert.equal(scene.drawings.has("gone"), false);
+});
+
+test("a restore vetoed without rejecting leaves the replacement pieces in place", async () => {
+  const scene = makeScene("restore-vetoed");
+  addDoc(scene, "Drawing", { _id: "piece" });
+  pushUndo({ scene: scene.id, created: ["piece"], deleted: [{ _id: "original" }] });
+  scene.createEmbeddedDocuments = async () => [];
+  await expectUndoFailed(() => undo());
+  assert.equal(scene.drawings.has("piece"), true);
+});
+
+test("bake redo removes nothing when the baked background is refused", async () => {
+  const scene = makeScene("bake-redo-refused");
+  addDoc(scene, "Drawing", { _id: "baked" });
+  pushUndo({ scene: scene.id, created: ["baked"], background: { level: null, src: "baked.webp" } });
+  scene.update = async () => {};
+  await expectUndoFailed(() => undo());
+  assert.equal(scene.drawings.has("baked"), true);
+});
+
+test("tile-only bake undo keeps the baked background when the tile restore fails", async () => {
+  const scene = makeScene("tile-undo-fails");
+  scene.background.src = "baked.webp";
+  pushUndo({ scene: scene.id, tiles: { deleted: [{ _id: "tile" }] }, background: { level: null, src: "original.webp" } });
+  scene.createEmbeddedDocuments = async () => { throw new Error("rejected"); };
+  await expectUndoFailed(() => undo());
+  assert.equal(scene.background.src, "baked.webp");
+});
+
+test("bake redo removes nothing when its level is gone", async () => {
+  const scene = makeScene("bake-redo-no-level");
+  scene.levels = new Map();
+  addDoc(scene, "Drawing", { _id: "baked" });
+  pushUndo({ scene: scene.id, created: ["baked"], background: { level: "gone", src: "baked.webp" } });
+  await expectUndoFailed(() => undo());
+  assert.equal(scene.drawings.has("baked"), true);
 });
 
 test("bake undo and redo are exempt from the lock check (bakes take locked drawings by design)", async () => {
