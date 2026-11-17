@@ -166,13 +166,39 @@ export function shiftMarks(marks, dx, dy, box) {
   const out = [];
   for (const { r, p } of marks ?? []) {
     const q = p.map((v, i) => Math.round((v + (i % 2 ? dy : dx)) * 10) / 10);
-    let hit = false;
-    for (let i = 0; i < q.length && !hit; i += 2) {
-      hit = q[i] >= box.minX - r && q[i] <= box.maxX + r && q[i + 1] >= box.minY - r && q[i + 1] <= box.maxY + r;
-    }
+    const pts = [];
+    for (let i = 0; i + 1 < q.length; i += 2) pts.push([q[i], q[i + 1]]);
+    // Test the mark's segments, not just its vertices: a simplified straight sweep can have both ends outside.
+    const grown = { minX: box.minX - r, minY: box.minY - r, maxX: box.maxX + r, maxY: box.maxY + r };
+    const hit = pts.some(pt => inBox(pt, grown)) ||
+      pts.slice(1).some((b, i) => segmentHitsBox(pts[i], b, grown));
     if (hit) out.push({ r, p: q });
   }
   return out;
+}
+
+const inBox = ([x, y], b) => x >= b.minX && x <= b.maxX && y >= b.minY && y <= b.maxY;
+
+// Liang-Barsky clip: does segment a-b pass through box b?
+function segmentHitsBox(a, b, box) {
+  const dx = b[0] - a[0], dy = b[1] - a[1];
+  let t0 = 0, t1 = 1;
+  for (const [p, q] of [[-dx, a[0] - box.minX], [dx, box.maxX - a[0]], [-dy, a[1] - box.minY], [dy, box.maxY - a[1]]]) {
+    if (p === 0) { if (q < 0) return false; continue; }
+    const t = q / p;
+    if (p < 0) t0 = Math.max(t0, t); else t1 = Math.min(t1, t);
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
+// Upper bound on dash pieces / brush stamps generated for one stroke.
+export const MAX_GENERATED_POINTS = 100000;
+
+export function pathLength(points) {
+  let len = 0;
+  for (let i = 1; i < points.length; i++) len += Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]);
+  return len;
 }
 
 export function getDashPattern(dashStyle, strokeWidth) {
@@ -189,6 +215,9 @@ export function dashSegments(points, dashLength, gapLength) {
   if (points.length < 2 || dashLength <= 0 || gapLength <= 0) {
     return points.length >= 2 ? [points] : segments;
   }
+  // Remote strokes come from other clients: a huge or non-finite length would hang the loop below
+  // (and float subtraction stops making progress at extreme lengths), so draw those solid.
+  if (!(2 * pathLength(points) / (dashLength + gapLength) < MAX_GENERATED_POINTS)) return [points];
 
   let drawingDash = true;
   let remaining = dashLength;
@@ -299,6 +328,10 @@ export function resample(points, step, values = null) {
   const val = i => (values ? values[i] : 1);
   if (!points.length) return out;
   out.push([points[0][0], points[0][1], val(0)]);
+  // Same bound as dashSegments: widen the step rather than emit an unbounded number of stamps.
+  const total = pathLength(points);
+  if (!Number.isFinite(total)) return [...out, [...points.at(-1).slice(0, 2), val(points.length - 1)]];
+  step = Math.max(step, total / MAX_GENERATED_POINTS);
   let carry = 0;
   for (let i = 1; i < points.length; i++) {
     const [ax, ay] = points[i - 1], [bx, by] = points[i];

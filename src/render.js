@@ -18,7 +18,7 @@ export function registerDrawingClass() {
       // Every polyline goes through drawLine: core uses butt caps and miter joins, so even
       // the default round tip would come out square-ended.
       if (!ownsShape(doc)) {
-        this.shape.filters = null;
+        setSoftness(this.shape, null);
         super._refreshShape();
         return applyEraseMask(this.shape, f.erase); // core-drawn polylines can carry erase marks too
       }
@@ -30,7 +30,7 @@ export function registerDrawingClass() {
         fill: doc.fillType ? { color: doc.fillColor, alpha: doc.fillAlpha } : null,
         ...f
       }, docLine(doc, 0, 0));
-      this.shape.filters = softness(f.hardness, doc.strokeWidth);
+      setSoftness(this.shape, f.hardness, doc.strokeWidth);
       applyEraseMask(this.shape, f.erase);
     }
 
@@ -49,6 +49,16 @@ export function registerDrawingClass() {
       this.renderFlags.set({ refreshState: true, refreshShape: true, refreshText: Boolean(this.text) });
     }
   };
+}
+
+// Reuses the shape's BlurFilter across refreshes instead of allocating a new one on every reshape.
+function setSoftness(g, hardness, width) {
+  const old = g.filters?.[0];
+  if (old instanceof PIXI.BlurFilter) {
+    if (hardness != null && hardness < 100) return void (old.blur = blurStrength(hardness, width)); // same rule as softness()
+    old.destroy();
+  }
+  g.filters = softness(hardness, width);
 }
 
 const CLIPPER_SCALE = 10; // Clipper works in integers; 0.1px precision

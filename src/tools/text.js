@@ -24,7 +24,9 @@ export default {
     pressedAt = null;
     if (!point) return;
     if (editor) return commit();
-    const doc = canvas.scene.drawings.find(d => d.text && canEdit(d) && !d.rotation && inBounds(point, docBounds(d)));
+    // Topmost first, like select's findDrawingAt, so overlapping text opens the one on top.
+    const doc = canvas.scene.drawings.filter(d => d.text && canEdit(d) && !d.rotation && inBounds(point, docBounds(d)))
+      .sort((a, b) => (b.elevation - a.elevation) || (b.sort - a.sort))[0];
     openEditor(doc ? [doc.x, doc.y] : point, doc);
   },
   cancel() {

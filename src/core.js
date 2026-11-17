@@ -1,5 +1,5 @@
 // Shared constants, state, and document/graphics helpers used across all Scratchpad tools.
-import { bounds, dashSegments, distanceToPolyline, getDashPattern, pointInPolygon, resample, rotateAbout } from "./geometry.js";
+import { bounds, dashSegments, distanceToPolyline, getDashPattern, pointInPolygon, resample, rotateAbout, pathLength, MAX_GENERATED_POINTS } from "./geometry.js";
 import { brushTexture } from "./textures.js";
 import { layerBlocksEdit } from "./layers.js";
 
@@ -177,7 +177,8 @@ function strokePath(g, style, points, closed) {
     g.lineStyle(0);
     if (texture) g.beginTextureFill({ texture, color: 0xffffff, alpha });
     else g.beginFill(pixiColor(style.color), alpha);
-    const step = Math.max(1, style.width * 0.2);
+    // One stamp budget for the whole stroke: each dash would otherwise get its own from resample.
+    const step = Math.max(1, style.width * 0.2, pathLength(points) / MAX_GENERATED_POINTS);
     for (const seg of segments) {
       for (const [x, y, s] of resample(seg, step, pressure)) stamp(g, style.brush, x, y, (style.width / 2) * Math.max(0.1, s));
     }
@@ -185,7 +186,7 @@ function strokePath(g, style, points, closed) {
     return;
   }
 
-  const [cap, join] = BRUSH_CAPS[style.brush] ?? BRUSH_CAPS.round;
+  const [cap, join] = Object.hasOwn(BRUSH_CAPS, style.brush) ? BRUSH_CAPS[style.brush] : BRUSH_CAPS.round;
   // PIXI's default miter limit (10) turns sharp corners of a square tip into long spikes.
   const setWidth = width => g.lineStyle({ width, color: pixiColor(style.color), alpha, cap, join, miterLimit: 2 });
 
@@ -225,10 +226,12 @@ export function softness(hardness, width) {
 
 const undoStack = [];
 const redoStack = [];
+const historyGeneration = new Map();
 let historyQueue = Promise.resolve();
 
 // `tiles` ({ created, deleted }) and `background` ({ level, src }) are only used by bakes.
 export function pushUndo({ scene, created = [], deleted = [], updated = [], tiles, background }) {
+  historyGeneration.set(scene, (historyGeneration.get(scene) ?? 0) + 1);
   undoStack.push({ scene, created, deleted, updated, tiles, background });
   if (undoStack.length > UNDO_LIMIT) undoStack.shift();
   // A new action only invalidates redo on its own scene.
@@ -253,8 +256,9 @@ async function applyDocs(scene, type, { created = [], deleted = [], updated = []
     prevUpdates.push(prev);
   }
 
-  if (createdDocs.length) await scene.deleteEmbeddedDocuments(type, createdDocs.map(d => d._id));
+  // Restore before removing: if a later request fails, both versions remain instead of neither.
   if (toRestore.length) await scene.createEmbeddedDocuments(type, toRestore, { keepId: true });
+  if (createdDocs.length) await scene.deleteEmbeddedDocuments(type, createdDocs.map(d => d._id));
   if (toUpdate.length) await scene.updateEmbeddedDocuments(type, toUpdate);
   return { created: toRestore.map(d => d._id), deleted: createdDocs, updated: prevUpdates };
 }
@@ -268,22 +272,34 @@ async function swapBackground(scene, { level, src }) {
   return { level, src: prev };
 }
 
-async function applyHistory(op, reverseStack) {
+async function applyHistory(op, reverseStack, generation) {
   const scene = game.scenes.get(op.scene);
   if (!scene) return;
+  // The server only checks ownership, so undo must honour Scratchpad's locks itself (the catch in
+  // enqueue reports it). Bakes are GM-only and take locked drawings by design.
+  const locked = id => {
+    const doc = scene.drawings.get(id);
+    return doc && (doc.locked || layerBlocksEdit(doc));
+  };
+  if (!op.background && [...op.created, ...op.updated.map(u => u._id)].some(locked)) {
+    throw new Error("Scratchpad: a drawing in this step is locked");
+  }
 
-  const reverse = { scene: op.scene, ...(await applyDocs(scene, "Drawing", op)) };
+  const reverse ={ scene: op.scene, ...(await applyDocs(scene, "Drawing", op)) };
   if (op.tiles) reverse.tiles = await applyDocs(scene, "Tile", op.tiles);
   if (op.background) reverse.background = await swapBackground(scene, op.background);
 
+  // A new action may invalidate this undo's redo branch while its document requests are pending.
+  if (reverseStack === redoStack && historyGeneration.get(op.scene) !== generation) return;
   reverseStack.push(reverse);
   if (reverseStack.length > UNDO_LIMIT) reverseStack.shift();
 }
 
-// A failed step (e.g. the drawing was locked meanwhile) must not reject the queue, or every later undo is skipped.
+// A failed step (e.g. the drawing was locked or deleted meanwhile) must not reject the queue, or every later undo is skipped.
 // The step is dropped, not retried: put back, one that keeps failing would block everything beneath it.
 const enqueue = (op, reverseStack) => {
-  historyQueue = historyQueue.then(() => applyHistory(op, reverseStack)).catch(err => {
+  const generation = historyGeneration.get(op.scene);
+  historyQueue = historyQueue.then(() => applyHistory(op, reverseStack, generation)).catch(err => {
     console.error(err);
     ui.notifications.warn(t("UndoFailed"));
   });

@@ -280,6 +280,9 @@ export function syncUI() {
 }
 
 export function attachCanvas() {
+  // Before resetRemote, which forgets the pen's stroke: cancelling it first lets peers drop its live preview.
+  gesture?.cancel?.(); // a drag still in flight belongs to the old canvas
+  gesture = null;
   resetRemote();
   // ControlsLayer's teardown leaves foreign children alone, so the previous pair must be removed here.
   for (const old of [view.preview, view.remoteLayer]) if (old && !old.destroyed) old.destroy({ children: true });
@@ -288,8 +291,6 @@ export function attachCanvas() {
   cancelPolygon();
   clearSelection();
   closeEditor();
-  gesture?.cancel?.(); // a drag still in flight belongs to the old canvas
-  gesture = null;
   activePointerId = null;
   touches.clear();
   pinch = null;
