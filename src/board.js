@@ -33,7 +33,7 @@ export function pin(doc) {
 export function visibleCards() {
   if (!canvas.ready || !canvas.scene) return [];
   return canvas.scene.drawings
-    .filter(doc => cardData(doc) && (!doc.hidden || game.user.isGM) && !isPrivateHidden(doc) && !layerHides(doc) && onViewedLevel(doc))
+    .filter(doc => cardData(doc) && (!doc.hidden || game.user.isGM || doc.isAuthor) && !isPrivateHidden(doc) && !layerHides(doc) && onViewedLevel(doc))
     .sort((a, b) => (a.elevation - b.elevation) || (a.sort - b.sort));
 }
 
@@ -78,6 +78,17 @@ function syncTransform() {
   }
 }
 
+// renderBoard runs on every hover/drag refresh; parsing each card's HTML every time is wasteful.
+const sanitized = new Map();
+function cachedSanitize(html) {
+  let out = sanitized.get(html);
+  if (out === undefined) {
+    if (sanitized.size > 500) sanitized.clear();
+    sanitized.set(html, out = sanitizeHTML(html));
+  }
+  return out;
+}
+
 export function scheduleRender() {
   if (layerElement && !pendingFrame) {
     pendingFrame = requestAnimationFrame(renderBoard);
@@ -108,7 +119,7 @@ function renderBoard() {
     `<div class="scratchpad-card${d.hidden ? " is-hidden" : ""}" ` +
     `style="left:${+d.x}px;top:${+d.y}px;width:${+d.shape.width}px;height:${+d.shape.height}px;transform:rotate(${+d.rotation || 0}deg);` +
     `color:${textColorOn(safeColor(d._source.fillColor, "#fff8dc"))}">` +
-    `${sanitizeHTML(cardData(d)?.html)}</div>`
+    `${cachedSanitize(cardData(d)?.html)}</div>`
   ).join("");
 
   const pinsSVG = [...linked].map(d => {

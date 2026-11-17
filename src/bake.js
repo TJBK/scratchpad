@@ -90,28 +90,57 @@ export async function bakeScene({ tiles = false, remove = true } = {}) {
   const bakedTiles = tiles ? scene.tiles.filter(tile => !tile.hidden && tile.object?.mesh?.visible &&
     fits({ minX: tile.x, minY: tile.y, maxX: tile.x + tile.width, maxY: tile.y + tile.height }, tile.rotation)) : [];
 
+  // Capture what the image represents before rendering or uploading can yield to remote edits.
+  const drawingSnapshots = drawings.map(d => d.toObject());
+  const tileSnapshots = bakedTiles.map(tile => tile.toObject());
   const blob = await renderSceneImage(drawings, bakedTiles);
   const path = await upload(blob, `${scene.id}-${Date.now()}.webp`);
 
   // Keep the very first original so the pre-bake background can always be restored.
   const previous = bgDoc.background.src ?? null;
   const original = scene.getFlag(MODULE, flag) ?? previous ?? "";
-  await scene.update({ [`flags.${MODULE}.${flag}`]: original });
-  await bgDoc.update({ "background.src": path });
-  // Never delete drawings unless the baked image really became the background.
-  if (bgDoc.background.src !== path) throw new Error("background update was not applied");
-
   // One undo step puts back the old background and everything the bake removed.
-  const undo = { scene: scene.id, background: { level, src: previous } };
-  if (remove && drawings.length) {
-    undo.deleted = drawings.map(d => d.toObject());
-    await scene.deleteEmbeddedDocuments("Drawing", undo.deleted.map(d => d._id));
+  const undo = { scene: scene.id, background: { level, src: previous }, deleted: drawingSnapshots,
+    tiles: { deleted: tileSnapshots } };
+  let drawingsAttempted = false;
+  let tilesAttempted = false;
+  // What the server actually deleted: an edit can land between the equality check and the deletion,
+  // so undo restores the documents as deleted rather than as snapshotted.
+  let removedDrawings = null;
+  let removedTiles = null;
+  const unchanged = (collection, snapshot) => {
+    const current = collection.get(snapshot._id);
+    return current && foundry.utils.objectsEqual(current.toObject(), snapshot);
+  };
+  try {
+    await scene.update({ [`flags.${MODULE}.${flag}`]: original });
+    await bgDoc.update({ "background.src": path });
+    // Never delete drawings unless the baked image really became the background.
+    if (bgDoc.background.src !== path) throw new Error("background update was not applied");
+
+    if (remove && drawings.length) {
+      undo.deleted = drawingSnapshots.filter(d => unchanged(scene.drawings, d));
+      if (undo.deleted.length) {
+        drawingsAttempted = true;
+        removedDrawings = await scene.deleteEmbeddedDocuments("Drawing", undo.deleted.map(d => d._id));
+      }
+    }
+    if (remove && bakedTiles.length) {
+      undo.tiles.deleted = tileSnapshots.filter(d => unchanged(scene.tiles, d));
+      if (undo.tiles.deleted.length) {
+        tilesAttempted = true;
+        removedTiles = await scene.deleteEmbeddedDocuments("Tile", undo.tiles.deleted.map(d => d._id));
+      }
+    }
+  } finally {
+    // Requests can reject after partial deletion. Never restore documents we did not try to remove.
+    undo.deleted = removedDrawings?.map(d => d.toObject()) ??
+      (drawingsAttempted ? undo.deleted.filter(d => !scene.drawings.has(d._id)) : []);
+    undo.tiles.deleted = removedTiles?.map(d => d.toObject()) ??
+      (tilesAttempted ? undo.tiles.deleted.filter(d => !scene.tiles.has(d._id)) : []);
+    // A refused background update with nothing removed changed nothing: an empty step would only clear redo.
+    if (bgDoc.background.src === path || undo.deleted.length || undo.tiles.deleted.length) pushUndo(undo);
   }
-  if (remove && bakedTiles.length) {
-    undo.tiles = { deleted: bakedTiles.map(tile => tile.toObject()) };
-    await scene.deleteEmbeddedDocuments("Tile", undo.tiles.deleted.map(d => d._id));
-  }
-  pushUndo(undo);
 }
 
 async function renderSceneImage(drawings, tiles) {
@@ -128,31 +157,39 @@ async function renderSceneImage(drawings, tiles) {
   // so bake plain PIXI copies (shared geometry/textures) in the group's draw order instead.
   const keep = new Set([canvas.primary.background, ...drawings.map(d => d.object.shape), ...tiles.map(tile => tile.object.mesh)]);
   const stage = new PIXI.Container();
-  const backdrop = stage.addChild(new PIXI.Graphics());
-  backdrop.beginFill(pixiColor(canvas.level?.background.color ?? canvas.scene.backgroundColor ?? "#999999")).drawRect(rect.x, rect.y, rect.width, rect.height).endFill();
-  for (const child of canvas.primary.children) {
-    if (keep.has(child) && child.visible) stage.addChild(copyOf(child, scale / canvas.stage.scale.x));
-  }
-
-  const rt = PIXI.RenderTexture.create({ width, height });
+  const filters = [];
+  let rt;
   try {
+    const backdrop = stage.addChild(new PIXI.Graphics());
+    backdrop.beginFill(pixiColor(canvas.level?.background.color ?? canvas.scene.backgroundColor ?? "#999999")).drawRect(rect.x, rect.y, rect.width, rect.height).endFill();
+    for (const child of canvas.primary.children) {
+      if (keep.has(child) && child.visible) stage.addChild(copyOf(child, scale / canvas.stage.scale.x, filters));
+    }
+    rt = PIXI.RenderTexture.create({ width, height });
     renderer.render(stage, { renderTexture: rt, transform, clear: true });
     const extracted = renderer.extract.canvas(rt);
     return await new Promise((resolve, reject) =>
       extracted.toBlob(b => (b ? resolve(b) : reject(new Error("image encode failed"))), "image/webp", 0.92));
   } finally {
     stage.destroy({ children: true });
-    rt.destroy(true);
+    // Display-object destruction does not release filters; shared original filters belong to the canvas.
+    for (const filter of filters) filter.destroy();
+    rt?.destroy(true);
   }
 }
 
 // A plain PIXI stand-in for a primary-group object, positioned identically.
-function copyOf(obj, blurRatio) {
+function copyOf(obj, blurRatio, filters) {
   let copy;
   if (obj instanceof PIXI.smooth.SmoothGraphics) {
     copy = new PIXI.smooth.SmoothGraphics(obj.geometry);
     // Soft-brush blur is sized for the current zoom (core.js softness); resize it for the bake scale.
-    copy.filters = obj.filters?.map(f => (f instanceof PIXI.BlurFilter ? new PIXI.BlurFilter(f.blur * blurRatio, 3) : f)) ?? null;
+    copy.filters = obj.filters?.map(f => {
+      if (!(f instanceof PIXI.BlurFilter)) return f;
+      const filter = new PIXI.BlurFilter(f.blur * blurRatio, 3);
+      filters.push(filter);
+      return filter;
+    }) ?? null;
     // Partial-erase mask (render.js); without it erased parts would reappear in the bake.
     if (obj.spEraseMask) copy.mask = copy.addChild(new PIXI.Graphics(obj.spEraseMask.geometry));
     for (const child of obj.children) {

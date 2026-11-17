@@ -176,3 +176,26 @@ test("closed shapes end exactly on their first point, so their fill is kept", ()
   assert.equal(ellipseShape([0, 0], [10, 10], 36).length, 37);
   assert.equal(polyShape([0, 0], [10, 10], 5, 0.45).length, 11);
 });
+
+test("shiftMarks keeps a straight sweep whose segment crosses the box with both ends outside", () => {
+  const box = { minX: 0, minY: 0, maxX: 120, maxY: 20 };
+  assert.deepEqual(shiftMarks([{ r: 5, p: [-100, 10, 300, 10] }], 0, 0, box), [{ r: 5, p: [-100, 10, 300, 10] }]);
+  // A segment passing beside the box (beyond its radius) still misses.
+  assert.deepEqual(shiftMarks([{ r: 5, p: [-100, 40, 300, 40] }], 0, 0, box), []);
+});
+
+test("dashSegments stays bounded on huge or non-finite lengths (remote socket input)", () => {
+  const started = Date.now();
+  assert.deepEqual(dashSegments([[0, 0], [1e100, 0]], 6, 4), [[[0, 0], [1e100, 0]]]);
+  assert.deepEqual(dashSegments([[0, 0], [Infinity, 0]], 6, 4), [[[0, 0], [Infinity, 0]]]);
+  assert.equal(dashSegments([[0, 0], [1e9, 0]], 6, 4).length, 1);
+  assert.ok(Date.now() - started < 1000);
+  // Ordinary strokes are still dashed.
+  assert.equal(dashSegments([[0, 0], [100, 0]], 6, 4).length, 10);
+});
+
+test("resample caps its output on huge or non-finite lengths", () => {
+  assert.ok(resample([[0, 0], [1e12, 0]], 1).length <= 100002);
+  assert.equal(resample([[0, 0], [Infinity, 0]], 1).length, 2);
+  assert.equal(resample([[0, 0], [10, 0]], 1).length, 12);
+});

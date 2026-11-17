@@ -2,7 +2,7 @@
 
 import { MODULE, TOOL, activeTool, undo, redo, t } from "./core.js";
 import { mountUI, syncUI, attachCanvas, focusPalette } from "./ui.js";
-import { onSocket } from "./tools/pen.js";
+import { onSocket, dropRemoteStroke } from "./tools/pen.js";
 import { refreshSelection, deleteSelected, selectedDrawings } from "./tools/select.js";
 import { registerLayerHooks, mountLayersPanel } from "./layers.js";
 import { onRefreshDrawing, onCanvasPan, registerDrawingClass } from "./render.js";
@@ -112,6 +112,10 @@ Hooks.on("canvasReady", () => {
 
 Hooks.on("canvasTearDown", () => {
   scheduleRender();
+});
+
+Hooks.on("userConnected", (user, connected) => {
+  if (!connected) dropRemoteStroke(user.id);
 });
 
 Hooks.on("renderSceneControls", syncUI);

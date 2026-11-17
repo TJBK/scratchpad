@@ -163,9 +163,10 @@ export default {
     const docs = selectedDocs();
     if (Math.hypot(dx, dy) < 1 || !docs.length) return drawOverlay();
 
+    const scene = selection.scene; // the selection may change scenes while the update is pending
     const updated = docs.map(doc => ({ _id: doc.id, x: doc.x, y: doc.y }));
-    await selection.scene.updateEmbeddedDocuments("Drawing", docs.map(doc => ({ _id: doc.id, x: doc.x + dx, y: doc.y + dy })));
-    pushUndo({ scene: selection.scene.id, updated });
+    await scene.updateEmbeddedDocuments("Drawing", docs.map(doc => ({ _id: doc.id, x: doc.x + dx, y: doc.y + dy })));
+    pushUndo({ scene: scene.id, updated });
     drawOverlay();
   },
 
@@ -175,13 +176,20 @@ export default {
   }
 };
 
+// Coalesced to one redraw per frame: a batch update fires one hook per drawing.
+let refreshFrame = 0;
 export function refreshSelection() {
-  if (activeTool() !== TOOL.SELECT || drag) return;
-  drawOverlay();
-  renderLayersPanel(); // the selection may have lost drawings
+  refreshFrame ||= requestAnimationFrame(() => {
+    refreshFrame = 0;
+    if (activeTool() !== TOOL.SELECT || drag) return;
+    drawOverlay();
+    renderLayersPanel(); // the selection may have lost drawings
+  });
 }
 
 export function clearSelection() {
+  cancelAnimationFrame(refreshFrame);
+  refreshFrame = 0;
   overlayClass("move", false);
   if (!selection.ids.size) return;
   selection.ids.clear();
@@ -235,8 +243,9 @@ export async function restyle({ color, dash, width }) {
   }
 
   if (next.length) {
-    await selection.scene.updateEmbeddedDocuments("Drawing", next);
-    pushUndo({ scene: selection.scene.id, updated: prev });
+    const scene = selection.scene;
+    await scene.updateEmbeddedDocuments("Drawing", next);
+    pushUndo({ scene: scene.id, updated: prev });
   }
   return true;
 }

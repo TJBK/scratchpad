@@ -131,8 +131,17 @@ export default {
       if (createdDocs.length) await scene.deleteEmbeddedDocuments("Drawing", createdDocs.map(d => d.id));
       throw err;
     }
-    if (updates.length) await scene.updateEmbeddedDocuments("Drawing", updates);
-    pushUndo({ scene: scene.id, created: createdDocs.map(d => d.id), deleted, updated: prevUpdates });
+    // The pieces are already saved: keep them undoable even if the erase-mark update fails.
+    let updated = [];
+    try {
+      if (updates.length) await scene.updateEmbeddedDocuments("Drawing", updates);
+      updated = prevUpdates;
+    } finally {
+      // An empty step would still clear redo, so only record one if something changed.
+      if (createdDocs.length || deleted.length || updated.length) {
+        pushUndo({ scene: scene.id, created: createdDocs.map(d => d.id), deleted, updated });
+      }
+    }
   }
 };
 

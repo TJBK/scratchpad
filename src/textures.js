@@ -24,7 +24,8 @@ function rng(seed) {
 }
 
 export function brushTexture(name) {
-  const recipe = RECIPES[name];
+  // Names come from drawing flags and other clients: "constructor" etc. must not hit Object.prototype.
+  const recipe = Object.hasOwn(RECIPES, name) ? RECIPES[name] : null;
   if (!recipe) return null;
   if (cache.has(name)) return cache.get(name);
 

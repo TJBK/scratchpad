@@ -84,14 +84,26 @@ export function registerLayerHooks() {
 }
 
 // GM only: save the layer list; with resort, rewrite every drawing's sort so layer order holds.
-async function saveLayers(layers, { resort = false, moves = {} } = {}) {
+export async function saveLayers(layers, { resort = false, moves = {} } = {}) {
   const scene = canvas.scene;
+  // Membership is resolved against the old list: an unflagged drawing defaults to the old bottom layer.
+  const old = getLayers(scene);
+  // Move a deleted layer's drawings before its definition goes: until then they would fall back to the
+  // bottom layer, which players may see even when the deleted layer was GM-only or hidden.
+  const moved = scene.drawings.filter(doc => moves[layerIdOf(doc, old)])
+    .map(doc => ({ _id: doc.id, [`flags.${MODULE}.layer`]: moves[layerIdOf(doc, old)] }));
+  if (moved.length) await scene.updateEmbeddedDocuments("Drawing", moved);
+  const current = new Map(resort ? scene.drawings.map(doc => [doc.id, { id: layerIdOf(doc, old), flag: doc.getFlag(MODULE, "layer") }]) : []);
   await scene.update({ [`flags.${MODULE}.layers`]: layers });
   if (!resort) return;
   const index = new Map(layers.map((l, i) => [l.id, i]));
   const updates = [];
   for (const doc of scene.drawings) {
-    const id = moves[doc.getFlag(MODULE, "layer")] ?? layerIdOf(doc, layers);
+    const before = current.get(doc.id);
+    const flag = doc.getFlag(MODULE, "layer");
+    // A drawing moved to another layer while the scene update was pending keeps that move.
+    const was = before && flag === before.flag ? before.id : flag;
+    const id = moves[was] ?? (index.has(was) ? was : layerIdOf(doc, layers));
     const sort = bandSort(index.get(id), doc.sort);
     if (sort !== doc.sort || id !== doc.getFlag(MODULE, "layer")) updates.push({ _id: doc.id, sort, [`flags.${MODULE}.layer`]: id });
   }
@@ -154,6 +166,7 @@ export function showLayerBadge(show) {
   if (!badge) return;
   badge.hidden = !show;
   if (!show) panel.hidden = true;
+  lastBadgeHTML = ""; // re-place it: the palette it avoids may have moved since
   renderLayersPanel();
 }
 
@@ -179,13 +192,17 @@ export function placeOnRight() {
   panel.style.top = `${badge.getBoundingClientRect().bottom + 6}px`;
 }
 
+let lastBadgeHTML = "";
+
 function renderBadge() {
   if (!badge || badge.hidden || !canvas.scene) return;
   const id = activeLayer();
   const layer = getLayers().find(l => l.id === id);
-  badge.innerHTML = `<i class="fa-solid fa-layer-group" aria-hidden="true"></i>
-    <span>${t("Layer")}: <strong>${esc(layer?.name ?? "")}</strong></span>
+  const html = `<i class="fa-solid fa-layer-group" aria-hidden="true"></i>
+    <span>${t("Layer")}: <strong>${esc(layer && (game.user.isGM || !hiddenForMe(layer)) ? layer.name : "")}</strong></span>
     <i class="fa-solid ${panel.hidden ? "fa-chevron-down" : "fa-chevron-up"}" aria-hidden="true"></i>`;
+  if (html === lastBadgeHTML) return;
+  badge.innerHTML = lastBadgeHTML = html;
   badge.setAttribute("aria-expanded", String(!panel.hidden));
   placeOnRight();
 }
@@ -243,7 +260,10 @@ async function onPanelClick(event) {
   const btn = event.target.closest("[data-act]");
   if (!btn) return;
   const act = btn.dataset.act;
-  if (act === "close") return toggleLayersPanel(false);
+  if (act === "close") {
+    toggleLayersPanel(false);
+    return badge.focus(); // like Escape; the button that had focus is gone
+  }
   if (act === "move") return moveToLayer(moveSelection?.() ?? [], activeLayer());
 
   const layers = foundry.utils.deepClone(getLayers());
